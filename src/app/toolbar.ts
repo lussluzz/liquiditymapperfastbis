@@ -1,6 +1,6 @@
 import { TIMEFRAMES } from './hub.ts';
 import { PALETTES, THEME_ORDER } from './theme.ts';
-import { AVAILABLE_LAYERS, type Store, type AppState, type Layer } from './store.ts';
+import { AVAILABLE_LAYERS, autoTheme, flippedTheme, prefersDark, themeChange, type Store, type AppState, type Layer } from './store.ts';
 import { VPN_HINT, VenueNotice, blockedVenues, idleText, idleVenues } from './venue-notice.ts';
 import type { VenueEntry } from './source.ts';
 import { clock, usd, zoneName } from './format.ts';
@@ -28,6 +28,9 @@ import { ABSORPTION_LIMITS, type AbsorptionSettings } from './absorption.ts';
 import { BUBBLE_LIMITS, BUBBLE_MINIMUMS, type BubbleSettings } from './prints.ts';
 import { LIQUIDATION_LIMITS, LIQUIDATION_MINIMUMS, coverageLines, type LiquidationSettings } from './liquidations.ts';
 import { buildKeyLevelPanel } from './keylevels/panel.ts';
+import { buildLiqLevelPanel } from './liq-panel.ts';
+import type { LiqLevelsSource } from './liq-levels.ts';
+import { liqLevelsUrl } from './liq-url.ts';
 import { buildVwapPanel, type WhaleInfo } from './vwap/panel.ts';
 import { buildFootprintPanel } from './footprint/panel.ts';
 import type { FlowBook } from './flow-book.ts';
@@ -41,7 +44,7 @@ import type { Panel } from './ui.ts';
 import { HEAT_STYLES, legendBackground, type HeatStyleId } from './heatmap/lut.ts';
 import { CONTRAST } from './heatmap/window.ts';
 import { CHART_TYPES, chartTypeGlyph, chartTypeName, chartTypeTip, type ChartType } from './chart-type.ts';
-import { compactBar, isPhone, onLayoutMode } from './device.ts';
+import { compactBar, isCoarse, isPhone, onLayoutMode } from './device.ts';
 import { openSheet, type Sheet } from './sheet.ts';
 import { wakeLockSupported } from './wake.ts';
 import { LANGUAGES, language, pickLanguage, saveLanguage, savedLanguage } from './i18n.ts';
@@ -61,7 +64,8 @@ function hiddenByFilter(venue: string, kind: 'spot' | 'perp' | null, scope: stri
   if (kind === 'spot') return t('{venue} is a spot venue, so the Perp filter hides it. Click to show it: the filter goes back to Both.', { venue });
   return back ? t('{venue} is an unclassified venue, so the Spot filter hides it. Click to show it: the filter goes back to Both.', { venue }) : t('{venue} is an unclassified venue, so the Perp filter hides it. Click to show it: the filter goes back to Both.', { venue });
 }
-const LAYERS: [Layer, string][] = [['liquidity', t('Liquidity')], ['liquidation', t('Liquidation levels')], ['stopLoss', t('Stop loss')], ['takeProfit', t('Take profit')]];
+// Liquidation levels are not a layer but the Chart deck's Liq levels, drawn over the heatmap.
+const LAYERS: [Layer, string][] = [['liquidity', t('Liquidity')], ['stopLoss', t('Stop loss')], ['takeProfit', t('Take profit')]];
 /** A chosen venue that has no book for this long gets a chip saying so (a start-up that is merely slow does not). */
 const IDLE_GRACE_MS = 20_000;
 /** What the dropdown says next to a layer that cannot be chosen yet. */
@@ -108,7 +112,7 @@ export class Toolbar {
   #coinNotice = el('div', { class: 'notice info', role: 'status', hidden: true });
   #market = el('select', { class: 'market', ariaLabel: t('Market'), tip: t("Market: whose candles, footprint and open interest the chart shows. The heatmap always combines every enabled venue's book, whatever is chosen here.") });
   #timeframes = el('div', { class: 'seg' });
-  #layer = el('select', { ariaLabel: t('Layer'), tip: t('Layer drawn on the map. Liquidity is the order-book heatmap; liquidation, stop-loss and take-profit layers are upcoming (they need data a static page cannot hold a key for).') });
+  #layer = el('select', { ariaLabel: t('Layer'), tip: t('Layer drawn on the map. Liquidity is the order-book heatmap; stop-loss and take-profit layers are upcoming (they need data a static page cannot hold a key for).') });
   #toggles = el('div', { class: 'seg toggles' });
   #chips = el('div', { class: 'chips' });
   /** Venues this location cannot reach, beside the live ones, so their absence is explained where it is noticed. */
@@ -139,7 +143,7 @@ export class Toolbar {
   /** The settings keys of the Chart deck's split buttons (`splitButton`): each opens its feature's panel, which is placed from the key. */
   #settingsKeys: Record<Exclude<Feature, 'highlights'>, HTMLButtonElement> = {
     trades: settingsKey(t('Trades')), footprint: settingsKey(t('Footprint')), vwap: settingsKey(t('VWAP')), keyLevels: settingsKey(t('Key levels')),
-    liquidations: settingsKey(t('Liquidations')), traded: settingsKey(t('Volume profile')), absorption: settingsKey(t('Absorption')),
+    liquidations: settingsKey(t('Liquidations')), liqLevels: settingsKey(t('Liquidation levels')), traded: settingsKey(t('Volume profile')), absorption: settingsKey(t('Absorption')),
   };
   /** The Alerts deck's settings keys: Highlights and Sound are switched and set the same way. */
   #alertKeys = { highlights: settingsKey(t('Highlights')), sound: settingsKey(t('Sounds')) };
@@ -153,6 +157,11 @@ export class Toolbar {
   /** The previous day's, week's and month's levels (keylevels/), set in its panel. */
   #keyLevels = el('button', { class: 'led-btn', textContent: t('Key levels'), tip: HELP.keyLevels.tip });
   #keyLevelPanel: Panel | null = null;
+  /** Hyperliquid's liquidation levels over the map and in the profile column (liq-levels.ts), set in its panel; only where its file has an address. */
+  #liqLevels = el('button', { class: 'led-btn liq-levels-btn', textContent: t('Liq levels'), tip: HELP.liqLevels.tip });
+  #liqLevelPanel: Panel | null = null;
+  /** The levels' source (set by the page once the hub exists), for its panel. */
+  liqSource: LiqLevelsSource | null = null;
   /** The footprint (on/off is `show.footprint`), set in its panel: a lamp button since it holds settings, not one of the pane toggles. */
   #footprint = el('button', { class: 'led-btn', textContent: t('Footprint'), tip: HELP.footprint.tip });
   #footprintPanel: Panel | null = null;
@@ -223,6 +232,12 @@ export class Toolbar {
   /** The page's language: the code of the one in use, and a menu of the others (a language is chosen before the page is built, so choosing one reloads it). */
   /** Which clock the page's times are on: UTC, or the computer's own. */
   #zone = el('button', { class: 'zone-btn' });
+  /** The time zone in a phone's Settings: both clocks side by side, the one in use lit (the bar's single button names only the current one). */
+  #zoneLocal = el('button', { type: 'button', textContent: t('Local') });
+  #zoneUtc = el('button', { type: 'button', textContent: 'UTC' });
+  #zoneSeg = el('div', { class: 'seg zone-seg', role: 'group', ariaLabel: t('Time zone') }, this.#zoneLocal, this.#zoneUtc);
+  /** The compact bar's light-or-dark key (Karl, 2026-11-01): one tap swaps the light theme and the dark one last shown (`flippedTheme`). */
+  #flip = el('button', { type: 'button', class: 'flip-btn' });
   /** The list of keyboard shortcuts (also the ? key); on the status bar, so a phone, which has no keyboard, does not show it. */
   #keys = el('button', { type: 'button', class: 'keys-btn', textContent: t('Keys'), tip: t('Keyboard shortcuts (?)'), onclick: () => this.openShortcuts() });
   /** Layouts, from the map's corner (a compact bar has it in Settings): the layout the screen is showing, the ready-made ones and the person's own (layouts/gallery.ts). `layouts` is set by main. */
@@ -321,6 +336,7 @@ export class Toolbar {
     this.#layer.onchange = () => this.store.set({ layer: this.#layer.value as Layer });
     for (const [key, label] of PANE_TOGGLES) {
       const button = el('button', { textContent: label, tip: HELP[key as HelpId].tip, onclick: () => this.store.set({ show: { ...this.store.state.show, [key]: !this.store.state.show[key] } }) });
+      button.dataset.pane = key;
       this.#toggleButtons.push(button); this.#toggles.append(button);
     }
     this.#settingsKeys.trades.onclick = () => {
@@ -350,11 +366,16 @@ export class Toolbar {
       this.#liquidationPanel = this.#track(togglePanel(this.#settingsKeys.liquidations, { title: t('Liquidations'), width: 400, align: 'left', onClose: () => { this.#liquidationPanel = null; } }, build), build);
     };
     this.#liquidations.onclick = () => this.store.set(togglePatch(this.store.state, 'liquidations'));
+    this.#settingsKeys.liqLevels.onclick = () => {
+      const build = (tools: HTMLElement, body: HTMLElement): void => buildLiqLevelPanel(this.store, tools, body, () => this.#liqLevelPanel?.render(build), this.liqSource);
+      this.#liqLevelPanel = this.#track(togglePanel(this.#settingsKeys.liqLevels, { title: t('Liquidation levels'), width: 400, align: 'left', onClose: () => { this.#liqLevelPanel = null; } }, build), build);
+    };
+    this.#liqLevels.onclick = () => this.store.set(togglePatch(this.store.state, 'liqLevels'));
     this.#alertSplits = { highlights: splitButton(this.#highlights, this.#alertKeys.highlights), sound: splitButton(this.#soundButton, this.#alertKeys.sound) };
     const k = this.#settingsKeys;
     this.#splits = {
       trades: splitButton(this.#trades, k.trades), footprint: splitButton(this.#footprint, k.footprint), vwap: splitButton(this.#vwap, k.vwap),
-      keyLevels: splitButton(this.#keyLevels, k.keyLevels), liquidations: splitButton(this.#liquidations, k.liquidations),
+      keyLevels: splitButton(this.#keyLevels, k.keyLevels), liquidations: splitButton(this.#liquidations, k.liquidations), liqLevels: splitButton(this.#liqLevels, k.liqLevels),
       traded: splitButton(this.#traded, k.traded), absorption: splitButton(this.#absorption, k.absorption),
     };
     for (const [value, label] of SCOPE_OPTIONS) this.#scope.append(el('button', { textContent: label, onclick: () => this.store.set({ scope: value }) }));
@@ -396,6 +417,9 @@ export class Toolbar {
     this.#theme.onclick = () => this.#openThemes();
     this.#language.onclick = () => this.#openLanguages();
     this.#zone.onclick = () => this.store.set({ timeZone: this.store.state.timeZone === 'utc' ? 'local' : 'utc' });
+    this.#zoneLocal.onclick = () => this.store.set({ timeZone: 'local' });
+    this.#zoneUtc.onclick = () => this.store.set({ timeZone: 'utc' });
+    this.#flip.onclick = () => { const s = this.store.state; this.store.set(themeChange(s, flippedTheme(s), true)); };
     this.#recenter.onclick = () => this.onRecenter();
     // On a phone the button is in Settings, which would cover the map the selection is dragged on.
     this.#range.onclick = () => { this.#sheet?.close(); this.onRange(); };
@@ -599,7 +623,7 @@ export class Toolbar {
         deck('heat', t('Heatmap'), [this.#source, this.#layer, this.#heat.style], [this.#heatScale, this.#heat.auto, this.#heat.smooth]),
         deck('panels', t('Panels'), [this.#toggles]),
         // The Range tool is the map corner's Select when the map holds its tools (Karl, 2026-10-27: the deck's Range was the same button twice).
-        deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, sp.absorption], [sp.traded, sp.keyLevels, sp.vwap, this.#scriptsSplit, ...(inCorner ? [] : [this.#range])]),
+        deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, ...(liqLevelsUrl() ? [sp.liqLevels] : []), sp.absorption], [sp.traded, sp.keyLevels, sp.vwap, this.#scriptsSplit, ...(inCorner ? [] : [this.#range])]),
         // Waves beside Sounds (Karl, 2026-10-30, from the status bar's corner): with Highlights, the three ways the page says that something large
         // happened, marked, heard and seen across the screen.
         deck('alerts', t('Alerts'), [this.#alertSplits!.highlights], [this.#alertSplits!.sound, this.#glass]),
@@ -616,7 +640,7 @@ export class Toolbar {
     this.root.replaceChildren(
       el('div', { class: 'tb-bar' },
         // The coin alone (Karl, 2026-10-17): the market is chosen in Settings, where the venues are.
-        el('div', { class: 'tb-row tb-main' }, this.#brand, this.#coin, this.#spacer, this.#status, this.#more, this.#collapse),
+        el('div', { class: 'tb-row tb-main' }, this.#brand, this.#coin, this.#spacer, this.#status, this.#flip, this.#more, this.#collapse),
         el('div', { class: 'tb-row tb-time' }, this.#timeframes, this.#recenter)),
       this.#expand, this.#notice.root, this.#coinNotice, this.#invite.root);
   }
@@ -699,10 +723,10 @@ export class Toolbar {
       this.#heatctl.replaceChildren();
       body.append(
         section(t('Tools'), [el('div', { class: 'sheet-tiles' }, this.#tour, this.#range, this.#guide, this.#shot, this.#author, this.#install.root)]),
-        section(t('Panels'), [this.#toggles, el('p', { class: 'sheet-note', textContent: t('Depth, OI, Delta, L/S, LT and Stats each add a tab to the bar under the map.') })]),
+        section(t('Panels'), [this.#toggles, el('p', { class: 'sheet-note', textContent: t('Depth, OI, Delta, L/S and Stats each add a tab to the bar under the map.') })]),
         // A phone arranges its panes by tab; a touch tablet that keeps the desktop's arrangement has the layouts here, its map's corner being clear of buttons.
         ...(isPhone() ? [] : [section(t('Layouts'), [el('div', { class: 'sheet-tiles' }, button(t('Layouts'), () => { this.#sheet?.close(); this.#openLayouts(this.#more); }, t('Layouts: choose a ready-made arrangement of the panels, or save your own')))])]),
-        section(t('Chart'), [el('div', { class: 'sheet-tiles' }, ...(['footprint', 'trades', 'liquidations', 'absorption', 'traded', 'keyLevels', 'vwap'] as const).map(f => this.#splits![f]), this.#scriptsSplit)]),
+        section(t('Chart'), [el('div', { class: 'sheet-tiles' }, ...(['footprint', 'trades', 'liquidations', ...(liqLevelsUrl() ? ['liqLevels'] as const : []), 'absorption', 'traded', 'keyLevels', 'vwap'] as const).map(f => this.#splits![f]), this.#scriptsSplit)]),
         // Only a phone has the Tape tab; a touch tablet keeps the desktop's panes and gets this sheet without it.
         ...(this.tapeFields && isPhone() ? [section(t('Tape'), this.tapeFields().map(([label, control]) => field(label, control)), helpButton('candlePane'))] : []),
         section(t('Heatmap'), [
@@ -711,7 +735,7 @@ export class Toolbar {
         section(t('Venues'), [field(t('Market'), this.#market, true), field(t('Markets'), this.#scope, true), el('div', { class: 'sheet-chips' }, this.#chips, this.#blocked)], this.#venuesButton!),
         section(t('Alerts'), [el('div', { class: 'sheet-tiles' }, this.#alertSplits!.highlights, this.#alertSplits!.sound),
           field(t('Waves'), el('label', { class: 'switch', tip: t('Waves: the bars and panels around the chart turn to glass; large orders and large flow changes light it and send waves across the screen') }, this.#glassSwitch, el('i')))]),
-        section(t('Appearance'), [field(t('Language'), this.#language), field(t('Theme'), this.#theme), field(t('Time zone'), this.#zone),
+        section(t('Appearance'), [field(t('Language'), this.#language), field(t('Theme'), this.#theme), field(t('Time zone'), this.#zoneSeg),
           ...(wakeLockSupported() ? [field(t('Keep screen on'), el('label', { class: 'switch', tip: t('Stops the screen turning off while this page is open. A screen that sleeps stops the recording, and the map then has a gap where it was.') }, this.#awake, el('i')))] : [])]));
     }, () => { this.#sheet = null; this.#more.classList.remove('open'); this.#venuesLabel.textContent = t('Venues'); this.#venuesCount.hidden = false; });
     this.#more.classList.add('open');
@@ -743,7 +767,7 @@ export class Toolbar {
     }
     setValue(this.#layer, state.layer);
     this.#toggleButtons.forEach((b, i) => b.classList.toggle('on', state.show[PANE_TOGGLES[i]![0]]));
-    lamp(this.#heat.auto, state.heat.auto); lamp(this.#trades, state.show.bubbles); lamp(this.#liquidations, state.liquidations.on); lamp(this.#absorption, state.absorption.on); lamp(this.#highlights, state.highlight.on); lamp(this.#traded, state.show.traded); lamp(this.#keyLevels, state.keyLevels.on); lamp(this.#vwap, state.vwap.on); lamp(this.#scripts, state.show.script); lamp(this.#footprint, state.show.footprint); lamp(this.#range, state.rangeTool || state.range !== null); lamp(this.#rangeCorner, state.rangeTool || state.range !== null);
+    lamp(this.#heat.auto, state.heat.auto); lamp(this.#trades, state.show.bubbles); lamp(this.#liquidations, state.liquidations.on); lamp(this.#liqLevels, state.liqLevels.on); lamp(this.#absorption, state.absorption.on); lamp(this.#highlights, state.highlight.on); lamp(this.#traded, state.show.traded); lamp(this.#keyLevels, state.keyLevels.on); lamp(this.#vwap, state.vwap.on); lamp(this.#scripts, state.show.script); lamp(this.#footprint, state.show.footprint); lamp(this.#range, state.rangeTool || state.range !== null); lamp(this.#rangeCorner, state.rangeTool || state.range !== null);
     if (this.#awake.checked !== state.keepAwake) this.#awake.checked = state.keepAwake;
     lamp(this.#glass, state.material === 'glass');
     if (this.#glassSwitch.checked !== (state.material === 'glass')) this.#glassSwitch.checked = state.material === 'glass';
@@ -756,6 +780,7 @@ export class Toolbar {
     if (this.#heat.hi.textContent !== hi) this.#heat.hi.textContent = hi;
     this.#showTheme(state.theme);
     this.#showZone(state.timeZone);
+    this.#showFlip(state.theme);
     const soundState = !state.sounds.on ? 'off' : state.soundState !== 'running' ? 'locked' : 'on';
     if (this.#soundButton.dataset.state !== soundState) {
       this.#soundButton.dataset.state = soundState;
@@ -861,8 +886,17 @@ export class Toolbar {
     const swatch = el('span', { class: 'swatch' }, ...[p.bg, p.panel, p.bid, p.ask].map(color => { const dot = el('i'); dot.style.background = color; return dot; }));
     this.#theme.replaceChildren(swatch, el('span', { textContent: p.label }));
   }
+  /** The light-or-dark key shows what a tap brings: the sun on a dark theme, the moon on a light one. */
+  #showFlip(id: string): void {
+    const to = PALETTES[id]?.dark ? 'light' : 'dark';
+    if (this.#flip.dataset.to === to) return;
+    this.#flip.dataset.to = to;
+    this.#flip.setAttribute('aria-label', to === 'light' ? t('Light theme') : t('Dark theme'));
+    setTip(this.#flip, t('Light or dark: one tap switches the theme. Every theme is in Settings, under Appearance.'));
+  }
   /** The zone button says the clock the page is on, and what a click does (the name of the computer's own zone is part of it). */
   #showZone(zone: AppState['timeZone']): void {
+    this.#zoneLocal.classList.toggle('on', zone !== 'utc'); this.#zoneUtc.classList.toggle('on', zone === 'utc');
     if (this.#zone.dataset.zone === zone) return;
     this.#zone.dataset.zone = zone;
     this.#zone.textContent = zone === 'utc' ? 'UTC' : t('Local');
@@ -888,8 +922,15 @@ export class Toolbar {
   }
 
   #openThemes(): void {
-    const items = THEME_ORDER.map(id => { const p = PALETTES[id]!; return { id, label: p.label, swatch: [p.bg, p.panel, p.text, p.bid, p.ask] }; });
-    openMenu(this.#theme, items, this.store.state.theme, { onPreview: id => this.onPreviewTheme(id), onSelect: id => this.store.set({ theme: id, themePicked: true }) });
+    // Automatic first, as in the language menu: the page's own choice for this screen (on a phone, its light or dark setting), followed while kept.
+    const auto = autoTheme(isPhone() && isCoarse(), prefersDark()), ap = PALETTES[auto]!;
+    const items = [{ id: 'auto', label: `${t('Automatic')} · ${ap.label}`, swatch: [ap.bg, ap.panel, ap.text, ap.bid, ap.ask] },
+      ...THEME_ORDER.map(id => { const p = PALETTES[id]!; return { id, label: p.label, swatch: [p.bg, p.panel, p.text, p.bid, p.ask] }; })];
+    const s = this.store.state;
+    openMenu(this.#theme, items, s.themePicked ? s.theme : 'auto', {
+      onPreview: id => this.onPreviewTheme(id === 'auto' ? auto : id),
+      onSelect: id => this.store.set(themeChange(this.store.state, id === 'auto' ? auto : id, id !== 'auto')),
+    });
   }
 
   #buildHighlights(_tools: HTMLElement, body: HTMLElement): void {
