@@ -19,6 +19,7 @@ import { readChartType, type ChartType } from './chart-type.ts';
 import { readFootprint, type FootprintSettings } from './footprint/settings.ts';
 import { readDelta, type DeltaSettings } from './delta/settings.ts';
 import { isCoarse, isPhone } from './device.ts';
+import { readPhoneHistory, type PhoneHistory } from './history-window.ts';
 import { LS_METRICS, type LsMetric } from '../shared/long-short.ts';
 import { readCustomMarkets, type CustomMarkets } from './market-choice.ts';
 import { readPullWindow, type PullWindow } from './panes/pull-stack.ts';
@@ -177,6 +178,8 @@ export interface AppState {
   followLive: boolean;
   /** Keep the screen on while the page is open (a phone's screen sleeping stops the recording). */
   keepAwake: boolean;
+  /** How much recorded history a phone reads when the page opens (app/history-window.ts); read once, at the start. */
+  phoneHistory: PhoneHistory;
   /**
    * The top bar folded away, the chart taking its room, as a browser's full screen does (a tablet's screen is short); a tab at the top
    * brings it back. Kept in this browser, never in a layout: it is about the screen, not about what the chart shows.
@@ -198,7 +201,7 @@ export interface AppState {
 
 type Listener = (state: AppState, changed: ReadonlySet<keyof AppState>) => void;
 
-const PERSISTED: (keyof AppState)[] = ['keepAwake', 'barCollapsed', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'liqLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'themeSlots', 'defaultsRev', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'draw', 'chartType'];
+const PERSISTED: (keyof AppState)[] = ['keepAwake', 'phoneHistory','barCollapsed', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'liqLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'themeSlots', 'defaultsRev', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'draw', 'chartType'];
 function readSaved(): Partial<AppState> {
   try { const raw = window.localStorage.getItem('hlm-app-v2'); return raw ? JSON.parse(raw) as Partial<AppState> : {}; } catch { return {}; }
 }
@@ -319,7 +322,7 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
   const state: AppState = {
     connected: false, status: t('connecting'), markets: [], marketId: '', seriesInstrument: '', mark: { price: 0, asOf: 0 }, levels: null, bookGone: {},
     layers: {}, candles: [], oi: [], oiInstrument: '', oiParts: [], oiPrice: 0, sounds: { ...DEFAULT_SOUNDS }, soundState: 'locked', lastSound: 0, vwapAnchoring: false, heatmapSource: 'aggregated', disabledVenues: [],
-    ladderVenue: '', ladderVenues: [], replay: null, draw: readDrawSettings(undefined), theme: DEFAULT_THEME, themePicked: false, themeSlots: { light: DEFAULT_THEME, dark: PHONE_DARK_THEME }, defaultsRev: DEFAULTS_REV, material: 'solid', followLive: true, keepAwake: false, barCollapsed: false, timeZone: 'local', hover: null, range: null, rangeTool: false,
+    ladderVenue: '', ladderVenues: [], replay: null, draw: readDrawSettings(undefined), theme: DEFAULT_THEME, themePicked: false, themeSlots: { light: DEFAULT_THEME, dark: PHONE_DARK_THEME }, defaultsRev: DEFAULTS_REV, material: 'solid', followLive: true, keepAwake: false, phoneHistory: 'auto', barCollapsed: false, timeZone: 'local', hover: null, range: null, rangeTool: false,
     ...saved, ...readSettings(saved),
   };
   // A save's measure strip was read into the profile along the top (`readSettings`): it is no setting of its own any more.
@@ -345,11 +348,15 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
     // profile with its column and no band (off by default since 2026-10-28); a save this old gets the band it was given then.
     if (!phone) {
       if (Object.keys(saved).length) state.traded = { ...state.traded, placements: withTopOn(state.traded.placements) };
-      state.show = { ...state.show, traded: true };
+      // Not on a touch screen's first visit, as not on a phone's (Karl, 2026-11-03: the volume profile is not on by default on any mobile).
+      if (!touch || Object.keys(saved).length) state.show = { ...state.show, traded: true };
     }
   }
   // The panes: a touch screen only (a desktop browser window that was narrow once is not a phone, and its panes stay as it chose them).
-  if (rev < 4 && phone && touch) state.show = { ...state.show, cvd: true, lt: true };
+  // LT was turned on here too while it had a tab; it has none since 2026-11-01 and, switched on, sits under the map (2026-11-03): it is
+  // something to switch on (Karl), so neither a first visit nor an old save has it turned on, nor a tablet that has the phone's arrangement
+  // since 2026-11-03 (Sol).
+  if (rev < 4 && phone && touch) state.show = { ...state.show, cvd: true };
   // The half-life: every screen. The old default is not a choice (every save wrote it down); another value is.
   if (rev < 4 && state.lt.halfLifeBp === LT_OLD_HALF_LIFE_BP) state.lt = { ...state.lt, halfLifeBp: LT_DEFAULTS.halfLifeBp };
   state.defaultsRev = DEFAULTS_REV;
@@ -361,6 +368,7 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
   state.themeSlots = { ...state.themeSlots, [PALETTES[state.theme]?.dark ? 'dark' : 'light']: state.theme };
   state.material = saved.material === 'glass' ? 'glass' : 'solid';
   state.barCollapsed = saved.barCollapsed === true;
+  state.phoneHistory = readPhoneHistory(saved.phoneHistory);
   state.replay = null;
   return state;
 }
