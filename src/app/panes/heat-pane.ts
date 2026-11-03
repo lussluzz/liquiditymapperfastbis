@@ -45,7 +45,7 @@ import { FOOTPRINT_SETTLE_MS, FootprintData, FootprintLod, VENUE_LINES, candleBo
 import { layoutInfo, paintInfoBox, type InfoColor, type InfoLine } from '../infobox.ts';
 import { TrapData, trapStatusText, trapText, type Trap } from '../traps.ts';
 import { GestureRecognizer, axisPinchScale, bindTouch, type GestureHandlers, type PinchInfo, type Pt } from '../touch.ts';
-import { PRICE_SPAN_SHARE, TIME_SPAN_MS, holdPixel, limitFactor, priceRef, regionAt, wheelZoom } from './heat-zoom.ts';
+import { PRICE_SPAN_SHARE, TIME_SPAN_MS, holdPixel, limitFactor, priceRef, regionAt, wheelZoom, zoomedView } from './heat-zoom.ts';
 import { t, tn } from '../i18n.ts';
 import { currentCoin, scaledUsd } from '../coin.ts';
 import { liqLevelsUrl } from '../liq-url.ts';
@@ -182,6 +182,31 @@ export function sideColumns(state: AppState): ReturnType<typeof arrangeSides> {
   return sidesMemo.sides;
 }
 const TIME_H = 22;
+/**
+ * How many candles before the view's left edge the scripts read, so a line that needs a window of candles is already worked out there: the
+ * VWAP script's 48 and a 200-candle average both fit. A longer window shows its first candles on the screen, as on any chart.
+ */
+export const SCRIPT_WARM_BARS = 200;
+/**
+ * What the chart's candles cover, for the history rows' memos: how many, the first and last start, and the sum of every start, so a gap that
+ * moved inside the series counts as a change (count and ends alone missed it, and the map kept a candle twice: Sol, 2026-11-03), never the
+ * forming candle's prices. `cut` is the replay's candle.
+ */
+export function coverageKey(candles: readonly CandleRow[], cut: number): string {
+  const first = candles[0]?.[0] ?? 0;
+  let sum = 0; for (const c of candles) sum += (c[0] - first) / 60_000;
+  return `${candles.length}|${first}|${candles[candles.length - 1]?.[0] ?? 0}|${sum}|${cut}`;
+}
+/** The exchange's candles of the chart's timeframe where the chart's own do not reach (before them, in their holes); in a replay, those closed by `at`. */
+function historyRows(answer: PriceHistoryAnswer, candles: readonly CandleRow[], tf: number, at: number, replay: boolean): CandleRow[] {
+  const starts = new Set(candles.map(c => c[0])), last = candles[candles.length - 1]?.[0] ?? Infinity;
+  return answer.candles.filter(c => c[0] < last && !starts.has(c[0]) && (!replay || c[0] + tf <= at)) as CandleRow[];
+}
+/** The chart's candles with `history` before them and in their holes, in time order. */
+function withHistory(history: readonly CandleRow[], candles: readonly CandleRow[]): CandleRow[] {
+  const before = !candles.length || history[history.length - 1]![0] < candles[0]![0];
+  return before ? [...history, ...candles] : [...history, ...candles].sort((a, b) => a[0] - b[0]);
+}
 
 /** A plot narrower than this (a phone, a split screen) gets the compact legend, whole-dollar prices and a shorter history note. */
 const NARROW_PLOT = 420;
@@ -205,6 +230,19 @@ export function profileColumnW(state: AppState): number { return !state.show.pro
 export function gutter(state: AppState): number { return AXIS_W + liqColumnW(state) + profileColumnW(state) + sideColumns(state).right.length * TRADED_W; }
 /** The width the columns left of the map take, between the flow column and the map: the map and the panes under it start after them. */
 export function leftGutter(state: AppState): number { return sideColumns(state).left.length * TRADED_W; }
+/**
+ * What `gutter` and `leftGutter` together would be for a map pane `paneW` wide, without setting anything: the desktop's layout asks it
+ * of the widths it could give the map before it gives one (layouts/dock-model.ts `chooseFold`). Under `COMPACT_PANE` the columns are
+ * narrowed and the traded ones go, so a narrower pane can have the wider plot (500 px: 90 of gutter; 560 px: 416).
+ */
+export function gutterAt(paneW: number, state: AppState): number {
+  const compact = paneW < COMPACT_PANE, axis = Math.max(compact ? 58 : 64, axisNeed()), profile = compact ? 84 : 128, traded = compact ? 0 : 96;
+  const fit = traded > 0 ? Math.max(1, Math.floor((paneW / 2 - axis - profile) / traded)) : 0;
+  const liq = liqColumnShown(state), liqW = !liq ? 0 : compact ? PROFILE_STRIP_W : profile;
+  const book = !state.show.profile ? 0 : compact && liq ? PROFILE_STRIP_W : profile;
+  const sides = state.show.traded && fit > 0 ? arrangeSides(state.traded.placements, fit) : NO_SIDES;
+  return axis + liqW + book + (sides.right.length + sides.left.length) * traded;
+}
 /**
  * The side of the book the map's hover names at a cell: the one holding more there, or none for a cell that holds nothing (right of the
  * live edge, a gap in the recording, beyond the prices recorded), which read "Bid $0" even above the price (Karl, 2026-11-01).
@@ -256,6 +294,8 @@ export class HeatPane {
   #gutterCss = ''; #leftCss = '';
   onStats: () => void = () => {};
   onView: () => void = () => {};
+  /** Whether scripts are running and read the candles (main.ts): then the price history reaches `SCRIPT_WARM_BARS` before the view too. */
+  scriptsReading: () => boolean = () => false;
   onFrame: () => void = () => {};
   /** The Delta pane's price/CVD divergences in view (set in main; none while that pane is not drawn). */
   divergences: () => readonly Divergence[] = () => [];
@@ -301,8 +341,10 @@ export class HeatPane {
   /** When the map was last drawn: the countdown redraws it once a second only when nothing else has (a quiet market). */
   #lastRender = 0;
   #overview = false;
+  /** Whether the price history read is shown (its legend and line): not when it was read only for the scripts' warm-up before the view. */
+  #overviewShown = false;
   #overviewTarget: PriceTarget | null = null;
-  #overviewContext: { key: string; candles: readonly CandleRow[]; window: PriceWindow | null } | null = null;
+  #overviewContext: { key: string; candles: readonly CandleRow[]; window: PriceWindow | null; shown: boolean } | null = null;
   #overviewPoints: { answer: PriceHistoryAnswer; cut: number; runs: PricePoint[][] } | null = null;
   /** The line as drawn: the runs without the parts the chart's candles cover, worked out again only when the answer or what the candles cover changes. */
   #overviewDrawn: { runs: PricePoint[][]; key: string; drawn: { t: number; price: number }[][]; covered: Covered[] } | null = null;
@@ -572,6 +614,7 @@ export class HeatPane {
 
   /** Frame the most recent candles, centred on the mark. */
   fit(): void {
+    this.#demo = null;
     if (replaying()) { this.placeAt(pageNow()); return; }
     this.#forceBaseline = true;
     const { candles, mark, timeframe } = this.store.state;
@@ -596,6 +639,36 @@ export class HeatPane {
     this.view.set({ t0: now + this.#liveMargin - span, t1: now + this.#liveMargin, p0: lo - pad, p1: hi + pad });
     this.store.set({ followLive: true });
     this.#rasteredKey = ''; this.onView(); this.invalidate();
+  }
+
+  /**
+   * What the tour's demonstration of the right-button drag found and puts back: the view, and how far ahead of now the live edge was. A view framed
+   * anew meanwhile (`fit`, `placeAt`, `goTo`, `focusOn`: another market, a timeframe, a recentre) forgets it, so the picture goes on from that view
+   * and puts that one back, not the old (Sol, 2026-11-03).
+   */
+  #demo: { view: Bounds; liveMargin: number } | null = null;
+  /** The chart's plot on the page (CSS pixels), where the tour's hand moves: right of the columns placed left of it, above the time strip. */
+  plotRect(): { x: number; y: number; w: number; h: number } | null {
+    const r = this.overlay.getBoundingClientRect();
+    return r.width > 0 ? { x: r.left + this.#left, y: r.top, w: this.plotW, h: this.plotH } : null;
+  }
+  /**
+   * The tour's demonstration of the right-button drag: the view the drag would give, pressed at `press` and now at `at` (plot pixels), from the
+   * view the demonstration began on (`zoomedView`, the drag's own rule). The first call keeps that view and the live edge's margin; `endDemo`
+   * puts both back, so the page is as it was whatever the demonstration did.
+   */
+  demoZoom(press: { x: number; y: number }, at: { x: number; y: number }): void {
+    this.#demo ??= { view: this.view.clone(), liveMargin: this.#liveMargin };
+    this.view.set(zoomedView(this.#demo.view, press, at, this.plotW, this.plotH, this.#priceRef(this.store.state.mark.price)));
+    this.#liveMargin = this.view.t1 - pageNow(); this.#rasteredKey = ''; this.onView(); this.invalidate();
+  }
+  /** The view as it was before the demonstration, moved on by the time that has passed while the map follows the market. */
+  endDemo(): void {
+    const demo = this.#demo; if (!demo) return;
+    this.#demo = null;
+    const shift = this.store.state.followLive ? pageNow() + demo.liveMargin - demo.view.t1 : 0;
+    this.view.set({ ...demo.view, t0: demo.view.t0 + shift, t1: demo.view.t1 + shift });
+    this.#liveMargin = demo.liveMargin; this.#rasteredKey = ''; this.onView(); this.invalidate();
   }
 
   /** One step of time zoom from the keyboard (in: `dir` 1), as the wheel does with Shift over the chart: about the live edge while the map follows the market. The price stays as it is. */
@@ -664,6 +737,7 @@ export class HeatPane {
 
   /** Replay: its moment becomes the map's live edge (at the span the map has), followed as it moves on. */
   placeAt(t: number): void {
+    this.#demo = null;
     const v = this.view, span = v.t1 - v.t0, margin = span * 0.08;
     let lo = Infinity, hi = -Infinity;
     const tf = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
@@ -674,6 +748,7 @@ export class HeatPane {
   }
 
   goTo(t: number): void {
+    this.#demo = null;
     const v = this.view, span = v.t1 - v.t0, t0 = t - span / 2, t1 = t + span / 2;
     const state = this.store.state, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
     // Fitted to the candles that are drawn, whichever series they are of (the line is cut on them, so they are what is on screen; a view they
@@ -830,6 +905,8 @@ export class HeatPane {
 
   #paintOverlay(state: AppState): void {
     const ctx = this.#ctx, w = this.#w, h = this.#h, pw = this.plotW, ph = this.plotH, v = this.view, p = this.#palette, left = this.#left;
+    // The plot's width, for a probe of the layout (it reads the page, not arithmetic).
+    if (this.root.dataset.plotW !== String(pw)) this.root.dataset.plotW = String(pw);
     ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
     ctx.clearRect(0, 0, this.#paneW, h);
     // Everything is drawn in the plot's coordinates: the plot starts at 0, the columns left of the map are at negative x.
@@ -1021,6 +1098,7 @@ export class HeatPane {
 
   /** Centre the map on a stretch of time and prices (a drawing found in its list), widening the view where it does not fit. */
   focusOn(box: { t0: number; t1: number; p0: number; p1: number }): void {
+    this.#demo = null;
     const v = this.view, span = Math.max(v.t1 - v.t0, (box.t1 - box.t0) * 1.4), pSpan = Math.max(v.p1 - v.p0, (box.p1 - box.p0) * 1.4);
     const tm = (box.t0 + box.t1) / 2, pm = (box.p0 + box.p1) / 2;
     v.set({ t0: tm - span / 2, t1: tm + span / 2, p0: pm - pSpan / 2, p1: pm + pSpan / 2 });
@@ -1135,18 +1213,25 @@ export class HeatPane {
 
   /** Plan only when the data or a whole minute of the view changes; pointer redraws never scan coverage or start a read. */
   #ensureOverview(state: AppState): void {
-    if (!state.show.candles || this.#suspended || this.root.hidden || document.hidden) { this.#overview = false; this.hub.priceHistory.stop(); return; }
+    if (!state.show.candles || this.#suspended || this.root.hidden || document.hidden) { this.#overview = false; this.#overviewShown = false; this.hub.priceHistory.stop(); return; }
     const v = this.view, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, now = Date.now(), history = this.hub.priceHistory;
-    const key = `${state.marketId}|${state.seriesInstrument}|${tf}|${Math.floor(v.t0 / 60_000)}|${Math.ceil(v.t1 / 60_000)}|${Math.floor(now / 60_000)}|${this.plotW}|${history.answer?.tfMs ?? 0}`;
+    // While scripts run they read the candles drawn (`candlesDrawn`) and some before the left edge, so a line is already worked out where the view
+    // begins (Karl, 2026-11-03: the VWAP script began at the 500th candle back, wherever that fell): those are asked for too.
+    const warm = this.scriptsReading() ? SCRIPT_WARM_BARS : 0;
+    const key = `${state.marketId}|${state.seriesInstrument}|${tf}|${Math.floor(v.t0 / 60_000)}|${Math.ceil(v.t1 / 60_000)}|${Math.floor(now / 60_000)}|${this.plotW}|${history.answer?.tfMs ?? 0}|${warm}`;
     let context = this.#overviewContext;
     if (!context || context.key !== key || context.candles !== state.candles) {
-      // The candles that are drawn, whichever market they are of: the line is cut on exactly these, so a line is planned only where it will show.
-      const wanted = priceOverviewNeeded(state.candles, tf, v, this.plotW, now);
+      // The candles that are drawn, whichever market they are of: the line is cut on exactly these, so a line is planned only where it will show
+      // (and, for the scripts, where their warm-up before the view lies: drawn there, it is off the screen).
+      const wanted = priceOverviewNeeded(state.candles, tf, { t0: v.t0 - warm * tf, t1: v.t1 }, this.plotW, now);
       this.#overviewTarget = wanted ? priceTarget(currentCoin(), state.marketId, kindOf(state.markets, state.marketId) ?? 'perp') : null;
-      const window = wanted && this.#overviewTarget ? priceWindow(v, this.plotW, now, history.answer?.tfMs, tf) : null;
-      context = this.#overviewContext = { key, candles: state.candles, window };
+      const window = wanted && this.#overviewTarget ? priceWindow(v, this.plotW, now, history.answer?.tfMs, tf, warm) : null;
+      // Shown (its legend, its line) only where the view itself needs it, not for the scripts' warm-up alone, which lies off the screen (Sol).
+      const shown = warm > 0 ? priceOverviewNeeded(state.candles, tf, v, this.plotW, now) : wanted;
+      context = this.#overviewContext = { key, candles: state.candles, window, shown };
     }
     this.#overview = context.window !== null && this.#overviewTarget !== null;
+    this.#overviewShown = this.#overview && context.shown;
     if (this.#overview && context.window && this.#overviewTarget) history.ensure(this.#overviewTarget, context.window, () => { this.#fitOverview(); this.invalidate(); });
     else history.stop();
     if (this.#overview) this.#fitOverview();
@@ -1186,11 +1271,8 @@ export class HeatPane {
     const answer = this.hub.priceHistory.answer, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
     if (!this.#overview || !answer || !answer.candles.length || !this.#historyAsCandles(state, answer)) return [];
     const candles = state.candles, at = pageNow(), replay = replaying(), cut = replay ? Math.floor(at / tf) : 0;
-    const key = `${candles.length}|${candles[0]?.[0] ?? 0}|${candles[candles.length - 1]?.[0] ?? 0}|${cut}`;
-    if (this.#history?.answer !== answer || this.#history.key !== key) {
-      const starts = new Set(candles.map(c => c[0])), last = candles[candles.length - 1]?.[0] ?? Infinity;
-      this.#history = { answer, key, rows: answer.candles.filter(c => c[0] < last && !starts.has(c[0]) && (!replay || c[0] + tf <= at)) as CandleRow[] };
-    }
+    const key = coverageKey(candles, cut);
+    if (this.#history?.answer !== answer || this.#history.key !== key) this.#history = { answer, key, rows: historyRows(answer, candles, tf, at, replay) };
     return this.#history.rows;
   }
 
@@ -1198,14 +1280,30 @@ export class HeatPane {
   candlesDrawn(state: AppState): readonly CandleRow[] {
     const history = this.historyCandles(state), candles = state.candles;
     if (!history.length) return candles;
-    if (this.#allCandles?.history !== history || this.#allCandles.candles !== candles) {
-      const before = !candles.length || history[history.length - 1]![0] < candles[0]![0];
-      this.#allCandles = { history, candles, rows: before ? [...history, ...candles] : [...history, ...candles].sort((a, b) => a[0] - b[0]) };
-    }
+    if (this.#allCandles?.history !== history || this.#allCandles.candles !== candles) this.#allCandles = { history, candles, rows: withHistory(history, candles) };
     return this.#allCandles.rows;
   }
 
+  /**
+   * `candlesDrawn` for the scripts, with a memo of its own: they read the store's candles, and the map draws a replay from candles cut to its
+   * moment, so one memo for both was built again at every frame and the scripts ran as often (Sol, 2026-11-03). The same series either way.
+   */
+  scriptCandles(state: AppState): readonly CandleRow[] {
+    const answer = this.hub.priceHistory.answer, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, candles = state.candles;
+    if (!this.#overview || !answer || !answer.candles.length || !this.#historyAsCandles(state, answer)) return candles;
+    const at = pageNow(), replay = replaying(), cut = replay ? Math.floor(at / tf) : 0, held = this.#scriptRows;
+    if (held?.answer === answer && held.candles === candles && held.cut === cut) return held.rows;
+    // The history rows as the map holds them when its coverage is the same (`coverageKey`), so the scripts read the series the map draws.
+    const key = coverageKey(candles, cut), history = held?.answer === answer && held.key === key ? held.history : historyRows(answer, candles, tf, at, replay);
+    const rows = history.length ? withHistory(history, candles) : candles;
+    this.#scriptRows = { answer, candles, cut, key, history, rows };
+    return rows;
+  }
+  #scriptRows: { answer: PriceHistoryAnswer; candles: readonly CandleRow[]; cut: number; key: string; history: readonly CandleRow[]; rows: readonly CandleRow[] } | null = null;
+
   #fitOverview(): void {
+    // Not while the tour's picture has the view: it is put back as it was, and the fit is made then (Sol, 2026-11-03).
+    if (this.#demo) return;
     const pending = this.#priceFit, v = this.view, answer = this.hub.priceHistory.answer;
     if (!pending || !answer || !this.#overviewTarget) return;
     if (v.t0 !== pending.t0 || v.t1 !== pending.t1 || v.p0 !== pending.p0 || v.p1 !== pending.p1) { this.#priceFit = null; return; }
@@ -1216,7 +1314,7 @@ export class HeatPane {
   }
 
   #overviewLegend(state: AppState): string {
-    if (!this.#overview) return '';
+    if (!this.#overviewShown) return '';
     const h = this.hub.priceHistory, a = h.answer, target = this.#overviewTarget;
     let text = '';
     if (a?.candles.length && target) {
@@ -1235,7 +1333,7 @@ export class HeatPane {
 
   /** A true price series; separate paths preserve exchange gaps and never splice a reference market into the selected market's live trades. */
   #paintOverview(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
-    const answer = this.hub.priceHistory.answer; if (!this.#overview || !answer || this.#historyAsCandles(state, answer)) return;
+    const answer = this.hub.priceHistory.answer; if (!this.#overviewShown || !answer || this.#historyAsCandles(state, answer)) return;
     const runs = this.#overviewLine(state), v = this.view, p = this.#palette;
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineJoin = 'round';
     ctx.globalAlpha = 0.9 * (1 - 0.85 * this.#lodFrame.barAlpha);
@@ -3499,12 +3597,8 @@ export class HeatPane {
         : overColumn || ((this.range?.armed || this.store.state.vwapAnchoring || this.draw?.placing) && onPlot) ? 'crosshair' : '';
       if (this.#zoomDrag) {
         // Drag right zooms the time axis in, drag up zooms the price axis in (left/down zoom out).
-        const z = this.#zoomDrag, k = 0.006, pw = this.plotW, ph = this.plotH;
-        const fx = Math.exp(-(x - z.x) * k), fy = Math.exp((y - z.y) * k);
-        const v0 = z.view, tAnchor = v0.t0 + Math.min(z.x, pw) / pw * (v0.t1 - v0.t0), pAnchor = v0.p0 + (1 - Math.min(z.y, ph) / ph) * (v0.p1 - v0.p0);
-        const tSpan = Math.max(30_000, (v0.t1 - v0.t0) * fx), pSpan = Math.max((v0.p1 - v0.p0) * fy, this.#priceRef(this.store.state.mark.price) * PRICE_SPAN_SHARE.min);
-        const t0 = tAnchor - Math.min(z.x, pw) / pw * tSpan, p1 = pAnchor + Math.min(z.y, ph) / ph * pSpan;
-        this.view.set({ t0, t1: t0 + tSpan, p0: p1 - pSpan, p1 });
+        const z = this.#zoomDrag;
+        this.view.set(zoomedView(z.view, z, { x, y }, this.plotW, this.plotH, this.#priceRef(this.store.state.mark.price)));
         this.#liveMargin = this.view.t1 - pageNow(); this.#rasteredKey = ''; this.onView(); this.invalidate();
         return;
       }
