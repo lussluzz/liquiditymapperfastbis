@@ -201,7 +201,7 @@ async function main(): Promise<void> {
   toolbar.goTo = {
     replay: t => replayBar.start(t),
     centre: () => (heat.view.t0 + heat.view.t1) / 2,
-    earliest: () => ({ depth: hub.recordedSince > 0 ? hub.recordedSince : null, candles: store.state.candles[0]?.[0] ?? null }),
+    earliest: () => ({ depth: hub.depthSince() > 0 ? hub.depthSince() : null, candles: store.state.candles[0]?.[0] ?? null }),
     go: t => heat.goTo(t),
     live: () => { if (replaying()) replayBar.stop(); else toolbar.onRecenter(); },
   };
@@ -222,7 +222,6 @@ async function main(): Promise<void> {
     candleAt: x => heat.candleAt(x), closesOnly: () => store.state.chartType === 'line', wallsAt: x => heat.wallsAt(x), restingAt: price => heat.restingAt(price),
     mark: () => store.state.mark.price, coin: () => currentCoin().coin, now: pageNow, replaying, settings: () => store.state.draw,
     reveal: () => store.set({ draw: { ...store.state.draw, shown: true } }),
-    holdStill: () => { if (store.state.followLive) store.set({ followLive: false }); },
     disarmOthers: () => { if (store.state.rangeTool) range.stop(); if (store.state.vwapAnchoring) store.set({ vwapAnchoring: false }); },
     focus: box => heat.focusOn(box),
     inspect: box => { range.begin({ t: box.t0, p: box.p0 }); range.end({ t: box.t1, p: box.p1 }, false); },
@@ -249,6 +248,7 @@ async function main(): Promise<void> {
   // The glass around the chart (glass/ui-glass.ts): lit by the large orders where the map shows them.
   const glass = new UiGlass((price, t) => heat.liveSpot(price, t), () => hub.tape);
   cvd.onLargeFlow = (x, y, usd) => glass.pulse(x, y, usd, scaledUsd(100_000), usd > 0 ? 0 : 1);
+  glass.setStrength(store.state.waveStrength);
   const applyMaterial = (): void => {
     glass.setPalette(applyTheme(store.state.theme));
     glass.setOn(store.state.material === 'glass');
@@ -267,7 +267,8 @@ async function main(): Promise<void> {
   hub.onRecovered = (id, _from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); };
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   // Candles that came after the first frame (an exchange blocked here, the reference market read once known) are framed, unless the map was moved.
-  hub.onSeriesRefilled = () => { if (store.state.followLive) heat.fit(); lower(); };
+  // A refill frames the map only while nobody has moved it since it was last framed: not under a hand, a drawing being placed or a zoom of one's own.
+  hub.onSeriesRefilled = () => { if (store.state.followLive && heat.untouched) heat.fit(); lower(); };
   toolbar.keyHistory = hub.keyHistory;
   toolbar.liqSource = hub.liqLevels;
   toolbar.profileHistory = barMs => hub.profileHistory(barMs);
@@ -299,6 +300,7 @@ async function main(): Promise<void> {
     const a = hit.action;
     if (a.kind === 'timeframe') store.set({ timeframe: a.tf });
     else if (a.kind === 'recenter') toolbar.onRecenter();
+    else if (a.kind === 'now') heat.jumpToNow();
     else if (a.kind === 'zoom') heat.zoomStep(a.dir);
     else if (a.kind === 'toggle') { store.set(togglePatch(store.state, a.feature)); toolbar.refreshOpenPanel(); }
     else if (a.kind === 'column') layouts.toggleColumn(a.side);
@@ -338,6 +340,8 @@ async function main(): Promise<void> {
     if (changed.has('timeZone')) { setTimeZone(state.timeZone); heat.invalidate(); lower(); cvd.invalidate(); showStatus(); }
     if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle, liq]) p.setPalette(state.theme); }
     if (changed.has('material')) { applyMaterial(); hub.setTape(tapeWanted()); }
+    // The page's glass draws its next frame with the new strength; the Tape's reads it with each frame it draws.
+    if (changed.has('waveStrength')) { glass.setStrength(state.waveStrength); candle.invalidate(); }
     if (changed.has('cvd')) cvd.settingsChanged();
     if (changed.has('status') || changed.has('connected') || changed.has('mark')) showStatus();
     if (changed.has('show') || changed.has('liqLevels')) layout(); else if (changed.has('traded')) { gutters(); arrange.refit(); }
@@ -356,6 +360,8 @@ async function main(): Promise<void> {
     if (changed.has('oiMarkets') || changed.has('disabledVenues') || changed.has('customMarkets') || (changed.has('markets') && store.state.oiMarkets === 'custom')) void hub.loadOi();
     else if (changed.has('levels') || changed.has('markets') || changed.has('bookGone')) hub.refreshOiMarkets();
     if (changed.has('highlight')) { heat.invalidate(); oi.invalidate(); depth.invalidate(); }
+    if (changed.has('depthBands') || changed.has('liqBands')) depth.settingsChanged();
+    if (changed.has('depthSource')) depth.refresh();
     if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('keyLevels') || changed.has('traded') || changed.has('vwap') || changed.has('vwapAnchoring') || changed.has('footprint') || changed.has('customMarkets') || changed.has('barStatOptions')) heat.invalidate();
     // Placing a VWAP anchor, selecting a Range and placing a drawing all take the next press on the map: arming one ends the others.
     if (changed.has('rangeTool') && state.rangeTool && state.vwapAnchoring) store.set({ vwapAnchoring: false });
@@ -401,7 +407,7 @@ async function main(): Promise<void> {
     if (changed.has('barCollapsed')) toolbar.setCollapsed(state.barCollapsed);
     if (['show', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'oiMarkets', 'customMarkets', 'oiInstrument', 'oiParts', 'seriesInstrument', 'range'].some(k => changed.has(k as never))) ls.invalidate();
     if (['show', 'candles', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'traded', 'timeZone', 'range', 'oi', 'oiInstrument', 'oiParts'].some(k => changed.has(k as never))) delta.invalidate();
-    if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'chartType', 'phoneHistory'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
+    if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'waveStrength', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'chartType', 'phoneHistory'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
   });
 
   for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle, liq]) p.setPalette(store.state.theme);

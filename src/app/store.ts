@@ -24,12 +24,14 @@ import { LS_METRICS, type LsMetric } from '../shared/long-short.ts';
 import { readCustomMarkets, type CustomMarkets } from './market-choice.ts';
 import { readPullWindow, type PullWindow } from './panes/pull-stack.ts';
 import { readLadderCues, type LadderCues } from './panes/ladder-cue-settings.ts';
+import { LIQ_DEFAULT, readDepthSettings, type DepthSettings, type DepthSource } from './depth-settings.ts';
 import type { EngineState } from './sound/engine.ts';
 import type { RangeSelection } from './range/selection.ts';
 import { hasTop, readTraded, topFromStrip, type TradedSettings } from './traded/settings.ts';
 import { withTopOn } from './traded/profiles.ts';
 import { t } from './i18n.ts';
 import { readLiqLevels, type LiqLevelSettings } from './liq-url.ts';
+import { WAVE_STRENGTH_DEFAULT, readWaveStrength } from './glass/waves.ts';
 import type { ReplayView } from './replay/clock.ts';
 
 export type Layer = 'liquidity' | 'liquidation' | 'stopLoss' | 'takeProfit';
@@ -163,6 +165,11 @@ export interface AppState {
   pullStack: PullWindow;
   /** What lights in the order book when a venue's displayed depth changes, and the heat strip under each venue's part of a level (panes/ladder-cue-settings.ts). */
   ladderCues: LadderCues;
+  /** The Depth pane's bands and how they are drawn (depth-settings.ts). */
+  depthBands: DepthSettings;
+  /** What the Depth pane adds up, and the Liquidation levels view's own bands. */
+  depthSource: DepthSource;
+  liqBands: DepthSettings;
   ladderVenue: string;
   /** Instrument ids that get their own book in Single mode (empty = every enabled venue). */
   ladderVenues: string[];
@@ -175,6 +182,11 @@ export interface AppState {
   themeSlots: { light: string; dark: string };
   /** What the chrome around the chart is made of, in any theme: solid, or glass that the market's large orders light (glass/ui-glass.ts). */
   material: 'solid' | 'glass';
+  /**
+   * How strongly the waves are drawn, 0 (barely there) to 100 (the Waves panel's Strength; glass/waves.ts `strengthGain`), on top of the
+   * field's own limit on how full a busy market may make it. The page's glass and the Tape's both.
+   */
+  waveStrength: number;
   followLive: boolean;
   /** Keep the screen on while the page is open (a phone's screen sleeping stops the recording). */
   keepAwake: boolean;
@@ -206,7 +218,7 @@ export interface AppState {
 
 type Listener = (state: AppState, changed: ReadonlySet<keyof AppState>) => void;
 
-const PERSISTED: (keyof AppState)[] = ['keepAwake', 'phoneHistory','barCollapsed', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'liqLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'themeSlots', 'defaultsRev', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'draw', 'chartType'];
+const PERSISTED: (keyof AppState)[] = ['keepAwake', 'phoneHistory','barCollapsed', 'material', 'waveStrength', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'liqLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'depthBands', 'depthSource', 'liqBands', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'themeSlots', 'defaultsRev', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'draw', 'chartType'];
 function readSaved(): Partial<AppState> {
   try { const raw = window.localStorage.getItem('hlm-app-v2'); return raw ? JSON.parse(raw) as Partial<AppState> : {}; } catch { return {}; }
 }
@@ -217,7 +229,7 @@ export type LadderCurves = (typeof LADDER_CURVES)[number];
 
 /** The settings a saved layout holds: what the chart shows and how, never the coin, the venues, the theme, the time zone or the sounds. */
 export const LAYOUT_KEYS = ['timeframe', 'layer', 'show', 'cvd', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'liqLevels', 'vwap', 'footprint', 'delta',
-  'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'chartType'] as const satisfies readonly (keyof AppState)[];
+  'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'depthBands', 'depthSource', 'liqBands', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'chartType'] as const satisfies readonly (keyof AppState)[];
 export type Settings = Pick<AppState, (typeof LAYOUT_KEYS)[number]>;
 
 /** The timeframes (hub.ts TIMEFRAMES; a test keeps the two the same). */
@@ -258,6 +270,9 @@ export function readSettings(saved: Partial<Record<keyof AppState, unknown>>): S
     liquidations: readLiquidations(saved.liquidations), keyLevels: readKeyLevels(saved.keyLevels), liqLevels: readLiqLevels(saved.liqLevels), vwap: readVwap(saved.vwap), footprint: readFootprint(saved.footprint),
     delta: readDelta(saved.delta), lsMetric: (LS_METRICS as readonly unknown[]).includes(saved.lsMetric) ? saved.lsMetric as LsMetric : 'accounts', pullStack: readPullWindow(saved.pullStack),
     ladderCues: readLadderCues(saved.ladderCues),
+    depthBands: readDepthSettings(saved.depthBands),
+    depthSource: saved.depthSource === 'liq' ? 'liq' : 'book',
+    liqBands: readDepthSettings(saved.liqBands, LIQ_DEFAULT),
     traded,
     scope: saved.scope === 'spot' || saved.scope === 'perp' ? saved.scope : 'all',
     heat: { ...heat, style: HEAT_STYLES.some(style => style.id === heat.style) ? heat.style : 'size', smooth: heat.smooth === 'off' ? 'off' : 'auto', contrast: clampContrast(heat.contrast) },
@@ -331,7 +346,7 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
   const state: AppState = {
     connected: false, status: t('connecting'), markets: [], marketId: '', seriesInstrument: '', mark: { price: 0, asOf: 0 }, levels: null, bookGone: {},
     layers: {}, candles: [], oi: [], oiInstrument: '', oiParts: [], oiPrice: 0, sounds: { ...DEFAULT_SOUNDS }, soundState: 'locked', lastSound: 0, vwapAnchoring: false, heatmapSource: 'aggregated', disabledVenues: [],
-    ladderVenue: '', ladderVenues: [], replay: null, draw: readDrawSettings(undefined), theme: DEFAULT_THEME, themePicked: false, themeSlots: { light: DEFAULT_THEME, dark: PHONE_DARK_THEME }, defaultsRev: DEFAULTS_REV, material: 'solid', followLive: true, keepAwake: false, phoneHistory: 'auto', barCollapsed: false, timeZone: 'local', hover: null, bookHover: null, range: null, rangeTool: false,
+    ladderVenue: '', ladderVenues: [], replay: null, draw: readDrawSettings(undefined), theme: DEFAULT_THEME, themePicked: false, themeSlots: { light: DEFAULT_THEME, dark: PHONE_DARK_THEME }, defaultsRev: DEFAULTS_REV, material: 'solid', waveStrength: WAVE_STRENGTH_DEFAULT, followLive: true, keepAwake: false, phoneHistory: 'auto', barCollapsed: false, timeZone: 'local', hover: null, bookHover: null, range: null, rangeTool: false,
     ...saved, ...readSettings(saved),
   };
   // A save's measure strip was read into the profile along the top (`readSettings`): it is no setting of its own any more.
@@ -376,6 +391,8 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
   state.theme = state.themePicked ? savedTheme : autoTheme(phone && touch, prefersDark());
   state.themeSlots = { ...state.themeSlots, [PALETTES[state.theme]?.dark ? 'dark' : 'light']: state.theme };
   state.material = saved.material === 'glass' ? 'glass' : 'solid';
+  // New on 2026-11-06, so no save holds a strength that was not chosen: it needs no revision of the defaults.
+  state.waveStrength = readWaveStrength(saved.waveStrength);
   state.barCollapsed = saved.barCollapsed === true;
   state.phoneHistory = readPhoneHistory(saved.phoneHistory);
   state.replay = null;
