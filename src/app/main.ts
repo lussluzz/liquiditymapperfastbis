@@ -26,7 +26,10 @@ import { LiqPane } from './panes/liq-pane.ts';
 import { setTourDemo } from './tour/demo.ts';
 import { liqLevelsUrl } from './liq-url.ts';
 import { DeltaPane } from './panes/delta-pane.ts';
+import { NlnsSource } from './delta/nlns-source.ts';
 import { LsPane } from './panes/ls-pane.ts';
+import { FundingPane } from './panes/funding-pane.ts';
+import { TabTitle } from './tab-title.ts';
 import { ScriptPane } from './panes/script-pane.ts';
 import { CandlePane } from './panes/candle-pane.ts';
 import { matchShortcut, togglePatch } from './shortcuts.ts';
@@ -94,8 +97,10 @@ async function main(): Promise<void> {
   const kernels = await loadKernels();
   keepCoinRecordings();
   const source = await chooseSource(params, choice, store.state.phoneHistory);
-  const hub = new Hub(store, source);
+  const hub = new Hub(store, source, { paced: true });
   const wake = new ScreenWake(); wake.set(store.state.keepAwake);
+  // The browser tab says the price: in its title, and its icon is the candle under way (GitHub issue #7).
+  new TabTitle(store);
 
   const toolbar = new Toolbar(store, source.venues);
   toolbar.flow = hub.flow;
@@ -122,10 +127,14 @@ async function main(): Promise<void> {
   setTourDemo({ plotRect: () => heat.plotRect(), zoom: (press, at) => heat.demoZoom(press, at), end: () => heat.endDemo() });
   const bars = new BarStatsPane(chart, store, heat.view, heat, hub);
   const depth = new DepthPane(chart, store, heat.view, hub);
-  const oi = new OiPane(chart, store, heat.view, hub.flow);
-  const delta = new DeltaPane(chart, store, heat.view, hub);
+  // NL/NS, worked out once and read by the OI pane (its bars by who opened), the Delta pane and the Funding pane.
+  const nlns = new NlnsSource(hub);
+  const oi = new OiPane(chart, store, heat.view, hub.flow, nlns);
+  const delta = new DeltaPane(chart, store, heat.view, hub, nlns);
   heat.divergences = () => delta.divergences; delta.onDivergences = () => heat.invalidate();
   const ls = new LsPane(chart, store, heat.view, hub);
+  // A venue's funding and premium, read by the page itself, and on Hyperliquid who opened each hour (NL/NS).
+  const funding = new FundingPane(chart, store, heat.view, nlns);
   const lt = new LtPane(chart, store, heat.view, hub);
   const script = new ScriptPane(chart, store, heat.view, hub);
   // Scripts read the candles the chart draws, its own and the exchange's before them, and the map asks for some before its left edge while they
@@ -159,6 +168,7 @@ async function main(): Promise<void> {
     { id: 'oi', root: oi.root, height: 150, min: 60, head: oi.header },
     { id: 'delta', root: delta.root, height: 150, min: 60, head: delta.header },
     { id: 'ls', root: ls.root, height: 120, min: 60, head: ls.header },
+    { id: 'funding', root: funding.root, height: 140, min: 70, head: funding.header },
     { id: 'lt', root: lt.root, height: 128, min: 70, head: lt.header },
     { id: 'script', root: script.root, height: 220, min: 60, head: script.header, closable: false },
   ], [
@@ -174,7 +184,7 @@ async function main(): Promise<void> {
   // A desktop folds its side columns to their edge tabs when the map would be left too little plot (layouts/dock-model.ts `chooseFold`).
   arrange.plotAt = paneW => paneW - gutterAt(paneW, store.state);
   toolbar.layouts = layouts;
-  const lower = () => { depth.invalidate(); oi.invalidate(); delta.invalidate(); ls.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.followMap(); };
+  const lower = () => { depth.invalidate(); oi.invalidate(); delta.invalidate(); ls.invalidate(); funding.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.followMap(); };
   // Replay: the map's candle under way is rebuilt from the flow, so flow arriving while paused redraws it too (live, the map has its own pace).
   // The volume profile along the top of the map draws traded volume from the flow too: history that has landed redraws it (a live second
   // does not, `loads`; the map is drawn several times a second while frames come anyway), with the Delta pane hidden as well.
@@ -182,7 +192,7 @@ async function main(): Promise<void> {
   // The open-interest markets are worked out from the flow and the books on the map, which come after the candles: asked again as they do.
   hub.onFlowChanged = () => { cvd.invalidate(); delta.invalidate(); script.refresh(); const landed = stripLoads !== hub.flow.loads; stripLoads = hub.flow.loads; if (replaying() || (landed && topShown(store.state))) heat.invalidate(); hub.refreshOiMarkets(); };
   // A finger on a pane under the map moves the time axis it shares with the map.
-  for (const pane of [depth, oi, delta, ls, lt, bars, script]) pane.useTimeGestures(heat.timeGestures());
+  for (const pane of [depth, oi, delta, ls, funding, lt, bars, script]) pane.useTimeGestures(heat.timeGestures());
   heat.onFrame = lower; heat.onView = lower;
   heat.onTopProfile = () => toolbar.openTradedPanel();
   heat.onArrangedChange = () => toolbar.refreshTradedPanel();
@@ -190,7 +200,7 @@ async function main(): Promise<void> {
   toolbar.profileRoom = () => heat.profileRoom();
   // The Range tool: a drag on the map, on a pane under it or across the flow column selects, and its panel adds up what happened there.
   const range = new RangeTool(store, hub); range.anchor = toolbar.rangeButton; range.mapWindow = () => ({ t0: heat.view.t0, t1: heat.view.t1 });
-  heat.range = range; cvd.range = range; for (const pane of [depth, oi, delta, ls, lt, bars, script]) pane.useRange(range);
+  heat.range = range; cvd.range = range; for (const pane of [depth, oi, delta, ls, funding, lt, bars, script]) pane.useRange(range);
   toolbar.onRange = () => range.toggle();
   toolbar.onRecenter = () => { heat.fit(); ladder.recenter(); };
   // The countdown under the price tag: a redraw a second when nothing else draws the map.
@@ -210,7 +220,10 @@ async function main(): Promise<void> {
   toolbar.onVenuesApplied = () => { void hub.refreshMarkets(); window.setTimeout(() => void hub.refreshMarkets(), 15_000); };
   const sounds = new Sounds(store); toolbar.attachSounds(sounds); sounds.start();
   // Sounds the panels may make about what happens in them (flow bursts, walls, the balance, the depth, candle closes); the bursts are also marked on the flow column.
-  const alerts = new Alerts(store, hub.flow, sounds.engine, Date.now, (ids, from) => { void hub.ensureFlow(ids, from); }, (ids, from, to) => hub.source.columns(ids, from, to, 60_000));
+  // The depth sound's baseline (hours of minute columns, read as the page opens) waits for the map's first columns, or 15 s where the map draws
+  // none (a phone's Tape): read beside them, its hours held the server and the page's connections and the map came seconds later.
+  const mapFirst = Promise.race([hub.columnsArrived, new Promise<void>(resolve => setTimeout(resolve, 15_000))]);
+  const alerts = new Alerts(store, hub.flow, sounds.engine, Date.now, (ids, from) => { void hub.ensureFlow(ids, from); }, (ids, from, to) => mapFirst.then(() => hub.source.columns(ids, from, to, 60_000)));
   toolbar.attachAlerts(alerts); alerts.start();
   // A script's alerts sound through the same Sounds switch, cap and list as the panels'.
   script.onAlert = a => alerts.script(Date.now(), a.text, a.sound, a.key);
@@ -258,7 +271,7 @@ async function main(): Promise<void> {
   // The book's cues read the tape for the contact ripples and for what traded beside a change (the hover), so they want it whether or not the ripples are on.
   const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone() || (store.state.show.book && store.state.ladderCues.look !== 'off');
   // The map is covered while a view that fills the area shows, and the book while any tab but its own does (the Tape draws its own): they draw nothing then, and catch up when they show again.
-  const coverPanes = (): void => { heat.setSuspended(mapCovered()); ladder.setSuspended(isPhone() && dock.tab !== 'book'); };
+  const coverPanes = (): void => { const covered = mapCovered(); heat.setSuspended(covered); hub.mapCovered = covered; ladder.setSuspended(isPhone() && dock.tab !== 'book'); };
   dock.onChange = () => { candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); hub.setTape(tapeWanted()); };
   hub.setTape(tapeWanted());
   hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); glass.tapeArrived(); ladder.tapeArrived(); };
@@ -338,7 +351,7 @@ async function main(): Promise<void> {
     if (changed.has('keepAwake')) wake.set(state.keepAwake);
     // Every time on the page is written from the one setting: say it changed, and have what shows times draw again.
     if (changed.has('timeZone')) { setTimeZone(state.timeZone); heat.invalidate(); lower(); cvd.invalidate(); showStatus(); }
-    if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle, liq]) p.setPalette(state.theme); }
+    if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of [heat, ladder, depth, oi, delta, ls, funding, lt, bars, script, cvd, candle, liq]) p.setPalette(state.theme); }
     if (changed.has('material')) { applyMaterial(); hub.setTape(tapeWanted()); }
     // The page's glass draws its next frame with the new strength; the Tape's reads it with each frame it draws.
     if (changed.has('waveStrength')) { glass.setStrength(state.waveStrength); candle.invalidate(); }
@@ -384,7 +397,10 @@ async function main(): Promise<void> {
     if (changed.has('replay')) { ladder.invalidate(); cvd.invalidate(); heat.invalidate(); lower(); }
     if (changed.has('layers') || changed.has('layer') || changed.has('candles') || changed.has('mark') || changed.has('heat') || changed.has('show')) heat.invalidate();
     if (changed.has('oi') || changed.has('show')) { oi.invalidate(); bars.invalidate(); }
-    else if (changed.has('oiReading')) oi.invalidate();
+    else if (changed.has('oiReading') || changed.has('oiFine')) oi.invalidate();
+    if (changed.has('oiChange')) oi.settingsChanged();
+    // The minute readings NL/NS works candles out on are read while something shown uses them (`fineWant`), whatever the timeframe.
+    if (['show', 'oiChange', 'delta', 'timeframe', 'oiParts', 'oiInstrument', 'fundingVenue'].some(k => changed.has(k as never))) void hub.loadOiFine();
     // A script that reads the change in open interest runs again once it lands, not at its next refresh.
     if (changed.has('oi') || changed.has('oiParts')) script.refresh();
     if (changed.has('show')) script.showChanged();
@@ -396,9 +412,11 @@ async function main(): Promise<void> {
     if (changed.has('barStatOptions') || changed.has('footprint') || changed.has('barStats')) bars.refresh();
     if (changed.has('grouping') || changed.has('ladderMode') || changed.has('ladderShow') || changed.has('ladderCurves') || changed.has('cvd') || changed.has('pullStack') || changed.has('ladderVenue') || changed.has('ladderVenues') || changed.has('disabledVenues') || changed.has('scope')) { ladder.invalidate(); ladder.syncControls(); }
     if (changed.has('range')) { heat.invalidate(); oi.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.invalidate(); }
-    if (changed.has('hover')) { heat.invalidate(); oi.invalidate(); delta.invalidate(); ls.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.syncHover(); }
+    if (changed.has('hover')) { heat.invalidateHover(); oi.invalidate(); delta.invalidate(); ls.invalidate(); funding.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.syncHover(); }
+    if (changed.has('fundingVenue')) funding.settingsChanged();
+    if (['show', 'timeframe', 'oiFine', 'range', 'replay'].some(k => changed.has(k as never))) funding.invalidate();
     // The order book's row under the pointer: the map and the flow column's price strip draw its price.
-    if (changed.has('bookHover')) { heat.invalidate(); cvd.syncBookHover(); }
+    if (changed.has('bookHover')) { heat.invalidateHover(); cvd.syncBookHover(); }
     if (changed.has('delta')) delta.settingsChanged();
     if ((changed.has('oi') || changed.has('oiParts')) && topShown(state)) heat.invalidate();
     if (changed.has('marketId')) candle.marketChanged();
@@ -407,11 +425,11 @@ async function main(): Promise<void> {
     // The panes follow the room the bar leaves or takes by themselves (each watches its own size).
     if (changed.has('barCollapsed')) toolbar.setCollapsed(state.barCollapsed);
     if (['show', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'oiMarkets', 'customMarkets', 'oiInstrument', 'oiParts', 'seriesInstrument', 'range'].some(k => changed.has(k as never))) ls.invalidate();
-    if (['show', 'candles', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'traded', 'timeZone', 'range', 'oi', 'oiInstrument', 'oiParts'].some(k => changed.has(k as never))) delta.invalidate();
-    if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'waveStrength', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'chartType', 'phoneHistory'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
+    if (['show', 'candles', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'traded', 'timeZone', 'range', 'oi', 'oiInstrument', 'oiParts', 'oiFine'].some(k => changed.has(k as never))) delta.invalidate();
+    if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'waveStrength', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'tabPrice', 'tabIcon', 'chartType', 'phoneHistory'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
   });
 
-  for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle, liq]) p.setPalette(store.state.theme);
+  for (const p of [heat, ladder, depth, oi, delta, ls, funding, lt, bars, script, cvd, candle, liq]) p.setPalette(store.state.theme);
   layout(); ladder.syncControls(); lt.refresh();
   layouts.seedDefault();
   arrange.setPaneHeight('bars', tableHeight(store.state.barStats, store.state.barStatOptions));
@@ -427,7 +445,7 @@ async function main(): Promise<void> {
   window.setInterval(() => { hub.loadSeries(true).catch((error: unknown) => console.warn('The candles could not be read again:', error)); }, 60_000);
   // Each new open-interest reading is pushed as it lands (Hub.#oiPush); this load is the reconciliation: history, the markets added
   // together, a reading a push missed.
-  window.setInterval(() => { void hub.loadOi(); }, 20_000);
+  window.setInterval(() => { void hub.loadOi(); void hub.loadOiFine(); }, 20_000);
   // A visitor the tour was never offered to is offered it once, a moment after the page has drawn (`?tour=0` leaves it out, for pictures and tests). With a window or the
   // Settings sheet open over the page at that moment it asks again every few seconds, for a minute, and records nothing until the offer is on the screen.
   if (new URLSearchParams(location.search).get('tour') !== '0') {

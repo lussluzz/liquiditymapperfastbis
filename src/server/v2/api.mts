@@ -9,7 +9,7 @@ import { OiSampler, oiHistoryWriter } from './oi-sampler.mts';
 import { LS_METRICS, LongShortCache, type LsMetric } from '../../shared/long-short.ts';
 import { SqliteLsStore } from './ls-store.mts';
 import { webGet, type Fetcher } from '../../shared/history.ts';
-import { PriceHistoryCache, PRICE_QUERY_BARS, priceListing } from '../../shared/price-history.ts';
+import { PriceHistoryCache, PRICE_QUERY_BARS, priceListing, priceTimeframeMs } from '../../shared/price-history.ts';
 import { BTC } from '../../shared/coins.ts';
 import type { OiEvent as OiPushItem } from '../../shared/connector.ts';
 import { TOUCH_HINT_MS } from '../../shared/levels.ts';
@@ -501,14 +501,15 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   };
   // Long/short ratios as the venues publish them, read when asked for and kept in memory and in a file of their own (shared/long-short.ts,
   // ls-store.mts): nothing of the history store's budget, after a restart only the hours since are read, and nothing new is asked while no
-  // page shows the pane (a read already under way finishes).
+  // page shows the pane (a read already under way finishes, and so does a long window's reading back through Binance's archive).
   // A file that cannot be opened (locked, damaged) costs only the keeping: it is a cache, never a reason not to start.
   let lsStore: SqliteLsStore | null = null;
   if (persist) try { lsStore = new SqliteLsStore(path.join(dataDir, 'long-short.sqlite')); } catch (error) { fault('the long/short readings will not be kept across restarts:', error); }
   const longShort = new LongShortCache(webGet, false, undefined, undefined, undefined, undefined, undefined, lsStore);
   const priceHistory = new PriceHistoryCache(priceHistoryGet);
   const priceHistoryRoute = (url: URL, res: ServerResponse) => {
-    const id = url.searchParams.get('inst') ?? '', tfMs = timeframeMs(url.searchParams.get('tf'));
+    // The line's intervals (`PRICE_TIMEFRAMES`: weeks too, for a window of more than 2,000 days), bounded to 2,000 bars like each of them.
+    const id = url.searchParams.get('inst') ?? '', tfMs = priceTimeframeMs(url.searchParams.get('tf'));
     const target = priceListing(BTC, id);
     if (!target || target.id !== id || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
     const span = windowOf(url, Date.now() + 1, 500 * tfMs);
