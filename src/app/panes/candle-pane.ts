@@ -19,6 +19,8 @@ import { STRIDE, type TapeRing } from '../tape/ring.ts';
 import { ROW_TEXELS, TrailGL, type FlashSprite } from '../candle/trail-gl.ts';
 import { strengthGain } from '../glass/waves.ts';
 import * as M from '../candle/model.ts';
+import { liveCanvas } from '../live-canvas.ts';
+import { pixelRatio, sharpens } from '../pixel-ratio.ts';
 
 const NUM_FONT = '10.5px ui-monospace, SFMono-Regular, Menlo, monospace', BOLD_NUM = `700 ${NUM_FONT}`;
 const SMALL_FONT = '10px ui-sans-serif, system-ui, sans-serif';
@@ -67,6 +69,8 @@ export class CandlePane {
   #markPath: { t: number; price: number }[] = [];
   /** The trail's renderer; whether it cannot run here (no WebGL2), or its context is lost until the browser gives it back. */
   #trail: TrailGL | null = null; #trailFailed = false; #trailLost = false; #trailRing: TapeRing | null = null;
+  /** Whether the trail's programs are built (trail-gl.ts `built`): until then the view is drawn as without glass, as while a context is lost. */
+  #trailBuilt = false;
   #readout = el('span', { class: 'readout' });
   #settings: M.CandleSettings;
   /** The tape since the page opened, how far into the ring it has read, and what it missed while the page was hidden (no orders came meanwhile). */
@@ -81,6 +85,7 @@ export class CandlePane {
   #reduced = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 
   constructor(parent: HTMLElement, private store: Store, private hub: Hub, private kernels: Kernels, private markets: (state: AppState) => string[]) {
+    liveCanvas(this.#trailCanvas, () => { if (this.#trail) this.#drawTrail(); });
     let saved: unknown = null;
     try { saved = JSON.parse(window.localStorage.getItem(M.CANDLE_SETTINGS_KEY) ?? 'null'); } catch { saved = null; }
     this.#settings = M.readCandleSettings(saved);
@@ -98,6 +103,8 @@ export class CandlePane {
     parent.append(this.root);
     this.#ctx = this.#canvas.getContext('2d')!; this.#marksCtx = this.#marks.getContext('2d')!;
     new ResizeObserver(() => this.#resize()).observe(this.#body);
+    // The trail and its marks too: sizing cleared them, and their loop may wait a second (reduced motion) before it draws them.
+    sharpens({ resize: () => this.#resize(), paint: () => { if (this.#shown) { this.#paint(); this.#drawTrail(); } } });
     this.#bindGestures();
     document.addEventListener('visibilitychange', () => {
       // A phone suspends a page in the background and no orders come: the tape has a gap there, which the header owns up to (`TapeGaps`).
@@ -218,7 +225,7 @@ export class CandlePane {
     const rect = this.#body.getBoundingClientRect();
     this.#w = Math.floor(rect.width); this.#h = Math.floor(rect.height);
     // Text is crisp at two device pixels to a CSS pixel; the trail's glow gains nothing past one and a half.
-    this.#dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.#dpr = Math.min(pixelRatio(), 2);
     this.#canvas.width = Math.max(1, Math.round(this.#w * this.#dpr)); this.#canvas.height = Math.max(1, Math.round(this.#h * this.#dpr));
     this.#canvas.style.width = `${this.#w}px`; this.#canvas.style.height = `${this.#h}px`;
     this.#marks.width = this.#canvas.width; this.#marks.height = this.#canvas.height; this.#marks.style.width = this.#canvas.style.width; this.#marks.style.height = this.#canvas.style.height;
@@ -381,7 +388,7 @@ export class CandlePane {
     // it stays readable and the shape of the book reads at a glance. Its exchanges are the Book tab's: shaded pieces here read as two
     // tones of one book (Karl, 2026-10-16).
     const sideW = l.bidX1 - l.bidX0, rowPx = step * (s.y1 - s.y0) / (s.p1 - s.p0), bricks = this.#settings.glass === 'bricks';
-    const trail = this.#trail, tdpr = trail?.dpr ?? 1, H = this.#trailCanvas.height, glassRows = this.#settings.glass !== 'off' && trail !== null;
+    const trail = this.#trail, tdpr = trail?.dpr ?? 1, H = this.#trailCanvas.height, glassRows = this.#settings.glass !== 'off' && trail !== null && this.#trailBuilt;
     if (glassRows) { if (this.#brickRows.length !== H * 4 * ROW_TEXELS) this.#brickRows = new Float32Array(H * 4 * ROW_TEXELS); else this.#brickRows.fill(0); }
     const pulses = this.#trackPulses(g, step, mark, markBin, frame.asOf);
     for (const side of ['ask', 'bid'] as const) {
@@ -606,22 +613,36 @@ export class CandlePane {
     return this.#whales;
   }
 
-  /** The trail's renderer, made on first use and again for a new ring or a context given back (its programs, textures and waves with it). */
+  /**
+   * The trail's renderer once it can draw: made on first use and again for a new ring or a context given back (its programs, textures and
+   * waves with it), its programs built beside the page (`#trailBuilt`); null until then and where it cannot be made.
+   */
   #ensureTrail(ring: TapeRing): TrailGL | null {
-    if (this.#trail && this.#trailRing === ring) return this.#trail;
-    if (this.#trailFailed || this.#trailLost) return null;
-    try { this.#trail = new TrailGL(this.#trailCanvas, ring); this.#trailRing = ring; this.#maskKey = ''; this.#maskSet = null; this.#trail.resize(this.#w, this.#h, Math.min(this.#dpr, 1.5)); }
-    catch (error) {
-      // Lost again while it was made: it is made once more when the context comes back.
-      if (this.#trailCanvas.getContext('webgl2')?.isContextLost()) { this.#trailLost = true; this.#trail = null; return null; }
-      // No glass then either: the candle is painted again with its panel and its veil on the page's canvas.
-      this.#trailFailed = true; console.warn('the trade trail cannot be drawn here:', error); this.invalidate();
+    if (!this.#trail || this.#trailRing !== ring) {
+      if (this.#trailFailed || this.#trailLost) return null;
+      try {
+        this.#trail = new TrailGL(this.#trailCanvas, ring); this.#trailRing = ring; this.#trailBuilt = false; this.#maskKey = ''; this.#maskSet = null; this.#trail.resize(this.#w, this.#h, Math.min(this.#dpr, 1.5));
+        // Drawn as without glass while it builds: the page's canvas paints the panel and the book's rows meanwhile.
+        this.invalidate();
+      } catch (error) {
+        // Lost again while it was made: it is made once more when the context comes back.
+        if (this.#trailCanvas.getContext('webgl2')?.isContextLost()) { this.#trailLost = true; this.#trail = null; return null; }
+        // No glass then either: the candle is painted again with its panel and its veil on the page's canvas.
+        this.#trailFailed = true; this.#trail = null; this.#trailRing = null; console.warn('the trade trail cannot be drawn here:', error); this.invalidate();
+        return null;
+      }
+    }
+    if (!this.#trailBuilt) {
+      try { if (!this.#trail.built()) return null; }
+      catch (error) { this.#trailFailed = true; this.#trail = null; this.#trailRing = null; console.warn('the trade trail cannot be drawn here:', error); this.invalidate(); return null; }
+      // Built: the page's canvas leaves the glass's part to it from now on (its panel, the book's rows).
+      this.#trailBuilt = true; this.invalidate();
     }
     return this.#trail;
   }
 
   /** Whether the candle is glass: chosen, and drawable (the glass is the trail's renderer; without WebGL, or while its context is lost, it is solid whatever the setting). */
-  #glassOn(): boolean { return this.#settings.glass !== 'off' && !this.#trailFailed && !this.#trailLost; }
+  #glassOn(): boolean { return this.#settings.glass !== 'off' && !this.#trailFailed && !this.#trailLost && (this.#trail === null || this.#trailBuilt); }
 
   /**
    * The trail runs while the view shows: a frame per display frame (at most 60 a second; with reduced motion one a second), each moving it by
@@ -660,7 +681,8 @@ export class CandlePane {
     if (!this.#shown || document.hidden) return false;
     const ring = this.hub.tape, l = this.#layout, s = this.#scale, p = this.#palette;
     if (!ring || !l || !s || replaying()) { this.#trail?.clear(); return false; }
-    const trail = this.#ensureTrail(ring); if (!trail) return false;
+    // A renderer still being built is looked at again on the next frame.
+    const trail = this.#ensureTrail(ring); if (!trail) return this.#trail !== null && !this.#trailBuilt && !this.#trailFailed && !this.#trailLost;
     const hidden = this.#hiddenOf(ring);
     if (hidden !== this.#maskSet) { const maskKey = [...hidden].join(','); if (maskKey !== this.#maskKey) { trail.setMask([...hidden]); this.#maskKey = maskKey; } this.#maskSet = hidden; }
     const tones = this.#tonesOf(p);

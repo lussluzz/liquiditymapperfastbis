@@ -29,8 +29,16 @@ export const noRows = (): HistoryRows => ({ flow: [], liquidations: [], oi: [], 
 const finite = (...v: number[]): boolean => v.every(Number.isFinite);
 
 export const HOUR_MS = 3_600_000;
-/** Hour files read at once. */
-const PARALLEL = 4;
+/**
+ * Hour files read at once. The service is behind Cloudflare (HTTP/2 and 3: one connection, many streams), and a fresh visit's day is some
+ * 25 files of 0.5-1 MB: four at a time left the line idle between round trips (3.4 s for 17 MB on a fast line, Research_Findings.md). A
+ * slow or data-saving line keeps four: the import gives up at its budget, and eight files half read then would be none whole.
+ */
+const PARALLEL = 8, PARALLEL_SLOW = 4;
+const parallelFiles = (): number => {
+  const link = (globalThis.navigator as { connection?: { saveData?: boolean; effectiveType?: string } } | undefined)?.connection;
+  return link && (link.saveData === true || /(^|-)(2g|3g)$/.test(link.effectiveType ?? '')) ? PARALLEL_SLOW : PARALLEL;
+};
 /** An hour whose minutes the page already holds this share of, for every book the service records, is not read. */
 const COVERED = 0.95;
 /** A minute counts as held from this many samples (of twelve). */
@@ -399,28 +407,45 @@ export interface ImportOptions {
    */
   budgetMs?: number; latestMs?: number;
   fetcher?: Fetch;
+  /** The service's `latest.json` asked for already (`readLatest`, while the page's recordings were read back): it is not asked again. */
+  latest?: Promise<LatestAnswer>;
 }
 
 /** The next task: what runs on this thread between (the engine's passes) gets its turn. */
 const nextTask = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
 
+/** What the service's `latest.json` said, or why it could not be read (`readLatest`). */
+export type LatestAnswer = { latest: HistoryLatest; error?: undefined } | { latest?: undefined; error: string };
+
+/**
+ * The service's `latest.json`, given up after `latestMs` or when `signal` aborts; never rejects. The import asks for it first; a page asks
+ * for it while its recordings are read back (app/browser/feeds.worker.ts), so the import does not wait a round trip for it after them.
+ */
+export async function readLatest(url: string, { latestMs = 2_000, fetcher = (u, init) => fetch(u, init), signal }: { latestMs?: number; fetcher?: Fetch; signal?: AbortSignal } = {}): Promise<LatestAnswer> {
+  const first = new AbortController(), timer = setTimeout(() => first.abort(), latestMs), stop = (): void => first.abort();
+  signal?.addEventListener('abort', stop);
+  try {
+    const response = await fetcher(`${url}/latest.json`, { signal: first.signal });
+    if (!response.ok) return { error: `latest.json: HTTP ${response.status}` };
+    const latest = await response.json() as HistoryLatest | null;
+    if (!latest || latest.v !== 1 || typeof latest.steps !== 'object' || latest.steps === null) return { error: `latest.json: unreadable (${latest === null ? 'null' : typeof latest})` };
+    return { latest };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', stop); }
+}
+
 /**
  * Reads the hours the page lacks, newest first (what runs out of time is the oldest), and adds their minutes; resolves with what it did and
  * the service's grid steps, never rejects.
  */
-export async function importHistory({ url, held, add, addRows, since, now, budgetMs = 5_000, latestMs = 2_000, fetcher = (u, init) => fetch(u, init) }: ImportOptions): Promise<{ hours: number; columns: number; rows: number; failed: number; read: number[]; steps?: Record<string, number>; tiles?: TilesInfo | null; error?: string }> {
+export async function importHistory({ url, held, add, addRows, since, now, budgetMs = 5_000, latestMs = 2_000, fetcher = (u, init) => fetch(u, init), latest: asked }: ImportOptions): Promise<{ hours: number; columns: number; rows: number; failed: number; read: number[]; steps?: Record<string, number>; tiles?: TilesInfo | null; error?: string }> {
   const abort = new AbortController(), timer = setTimeout(() => abort.abort(), budgetMs);
   const done = { hours: 0, columns: 0, rows: 0, failed: 0, read: [] as number[] };
   try {
-    const first = new AbortController(), firstTimer = setTimeout(() => first.abort(), latestMs), stop = (): void => first.abort();
-    abort.signal.addEventListener('abort', stop);
-    let latest: HistoryLatest;
-    try {
-      const response = await fetcher(`${url}/latest.json`, { signal: first.signal });
-      if (!response.ok) return { ...done, error: `latest.json: HTTP ${response.status}` };
-      latest = await response.json() as HistoryLatest;
-    } finally { clearTimeout(firstTimer); abort.signal.removeEventListener('abort', stop); }
-    if (!latest || latest.v !== 1 || typeof latest.steps !== 'object' || latest.steps === null) return { ...done, error: `latest.json: unreadable (${latest === null ? 'null' : typeof latest})` };
+    const answer = await (asked ?? readLatest(url, { latestMs, fetcher, signal: abort.signal }));
+    if (answer.error !== undefined) return { ...done, error: answer.error };
+    let latest = answer.latest;
     const steps: Record<string, number> = {};
     for (const [inst, step] of Object.entries(latest.steps)) if (typeof step === 'number' && step > 0 && Number.isFinite(step)) steps[inst] = step;
     latest = { ...latest, steps };
@@ -447,7 +472,7 @@ export async function importHistory({ url, held, add, addRows, since, now, budge
         } catch { done.failed++; }
       }
     };
-    await Promise.all(Array.from({ length: PARALLEL }, worker));
+    await Promise.all(Array.from({ length: parallelFiles() }, worker));
     // The long history's tiles (app/archive/): read by the page from the same answer, never asked for again.
     return { ...done, steps, tiles: parseTilesInfo(latest.tiles) };
   } catch (error) {

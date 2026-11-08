@@ -42,8 +42,9 @@ import { PALETTES } from './theme.ts';
 import { openedSheet } from './sheet.ts';
 import { topShown } from './measures/strip.ts';
 import { tableHeight } from './panes/bar-stats.ts';
-import { Layout } from './layout.ts';
+import { Layout, type LayoutPane } from './layout.ts';
 import { LayoutActions } from './layouts/actions.ts';
+import { PANE_SHOW_KEY } from './layouts/dock-model.ts';
 import { Dock, axisOf, fillsArea } from './dock.ts';
 import { RangeTool } from './range/tool.ts';
 import { startDevice, onLayoutMode, isCoarse, isPhone, layoutMode, compactBar } from './device.ts';
@@ -61,6 +62,8 @@ async function serverAnswers(): Promise<boolean> {
     return response.ok && (response.headers.get('content-type') ?? '').includes('json');
   } catch { return false; }
 }
+/** A host that only serves files (GitHub Pages): no server answers there, so it is not asked (a round trip of every start, ~0.2 s). */
+const fileHost = (): boolean => location.hostname.endsWith('.github.io');
 
 /**
  * Where the data comes from. A static host (GitHub Pages, any file server) has no server behind it, so the page reads the exchanges
@@ -70,7 +73,7 @@ async function serverAnswers(): Promise<boolean> {
  */
 async function chooseSource(params: URLSearchParams, choice: CoinChoice, phoneHistory: PhoneHistory): Promise<DataSource> {
   const wanted = params.get('source');
-  if (choice.coin.coin === 'BTC' && (wanted === 'server' || (wanted !== 'browser' && await serverAnswers()))) return new ServerSource();
+  if (choice.coin.coin === 'BTC' && (wanted === 'server' || (wanted !== 'browser' && !fileHost() && await serverAnswers()))) return new ServerSource();
   // A phone in the hand reads a few hours of the recorded history, not the day (app/history-window.ts).
   const historyHoursToRead = historyHours(isHandheldPhone(), phoneHistory, savesData(), compactBar());
   return new BrowserSource(new Worker(new URL('./browser/feeds.worker.ts', import.meta.url), { type: 'module' }), { persist: params.get('persist') !== '0', coin: choice.coin, tier: choice.tier, historyHours: historyHoursToRead });
@@ -160,8 +163,12 @@ async function main(): Promise<void> {
   const candle = new CandlePane(main, store, hub, kernels, s => heat.footprintMarkets(s));
   // The phone's Liq tab: the liquidation ladder, next to the Book (panes/liq-pane.ts).
   const liq = new LiqPane(main, store, hub);
+  // Every pane drawn in the page's palette: a theme picked, or previewed by hover, repaints them all (one list, so none is left in the old one).
+  const themed = [heat, ladder, depth, oi, delta, ls, funding, lt, bars, script, cvd, candle, liq];
   toolbar.tapeFields = () => candle.settingsFields();
-  const arrange = new Layout(main, chart, { left: flowCol, right: side }, [
+  // The map and the panes under it, top down. Each pane but the map shows while its switch is on (`layout`, by `PANE_SHOW_KEY`), the Scripts
+  // pane only for scripts drawn in rows.
+  const strip: LayoutPane[] = [
     { id: 'heat', root: heat.root, min: 240 },
     { id: 'bars', root: bars.root, height: 84, min: 56, head: bars.header },
     { id: 'depth', root: depth.root, height: 132, min: 70, head: depth.header },
@@ -171,7 +178,8 @@ async function main(): Promise<void> {
     { id: 'funding', root: funding.root, height: 140, min: 70, head: funding.header },
     { id: 'lt', root: lt.root, height: 128, min: 70, head: lt.header },
     { id: 'script', root: script.root, height: 220, min: 60, head: script.header, closable: false },
-  ], [
+  ];
+  const arrange = new Layout(main, chart, { left: flowCol, right: side }, strip, [
     { id: 'cvd', root: cvd.root, head: cvd.controls, title: t('Flow') },
     { id: 'book', root: ladder.root, head: ladder.controls, title: t('Order Book') },
   ]);
@@ -262,10 +270,11 @@ async function main(): Promise<void> {
   const glass = new UiGlass((price, t) => heat.liveSpot(price, t), () => hub.tape);
   cvd.onLargeFlow = (x, y, usd) => glass.pulse(x, y, usd, scaledUsd(100_000), usd > 0 ? 0 : 1);
   glass.setStrength(store.state.waveStrength);
+  // The chrome turns see-through once the glass can draw behind it: its programs are built beside the page, and it says so itself then.
   const applyMaterial = (): void => {
     glass.setPalette(applyTheme(store.state.theme));
     glass.setOn(store.state.material === 'glass');
-    document.documentElement.dataset.material = glass.on ? 'glass' : 'solid';
+    document.documentElement.dataset.material = glass.showing ? 'glass' : 'solid';
   };
   // On a phone the Tape keeps the market's orders from the page's opening, whichever tab shows, so the ring runs there always.
   // The book's cues read the tape for the contact ripples and for what traded beside a change (the hover), so they want it whether or not the ripples are on.
@@ -292,7 +301,7 @@ async function main(): Promise<void> {
   hub.onAbsorptionChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.absorptionInfo = () => heat.absorptionThresholdText();
   // Hovering a theme shows it everywhere without saving it; leaving the menu puts the saved one back.
-  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; glass.setPalette(applyTheme(name)); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle, liq]) p.setPalette(name); toolbar.previewTheme(name); };
+  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; glass.setPalette(applyTheme(name)); for (const p of themed) p.setPalette(name); toolbar.previewTheme(name); };
   heat.onStats = () => toolbar.sync(store.state, heat.window);
 
   // An address like #guide/mirror opens the guide there.
@@ -334,7 +343,10 @@ async function main(): Promise<void> {
   const layout = () => {
     const s = store.state;
     gutters();
-    depth.root.hidden = !s.show.depth; oi.root.hidden = !s.show.oi; delta.root.hidden = !s.show.delta; ls.root.hidden = !s.show.ls; lt.root.hidden = !s.show.lt; bars.root.hidden = !s.show.stats; script.root.hidden = !scriptRows(s);
+    // Every pane under the map follows its switch, by the layouts' own map of them: the Funding pane, left out of a list written out by
+    // hand here, showed for everyone whatever its switch said (2026-11-07). The Scripts pane is there only for scripts drawn in rows.
+    for (const p of strip) { const key = PANE_SHOW_KEY[p.id]; if (key && p.id !== 'script') p.root.hidden = !s.show[key]; }
+    script.root.hidden = !scriptRows(s);
     // The two side panels vanish and return at once: nothing is rebuilt, a hidden column is simply not laid out (a closed one leaves an edge tab).
     arrange.sides({ cvd: s.show.cvd, book: s.show.book });
     arrange.rebuild();
@@ -351,7 +363,7 @@ async function main(): Promise<void> {
     if (changed.has('keepAwake')) wake.set(state.keepAwake);
     // Every time on the page is written from the one setting: say it changed, and have what shows times draw again.
     if (changed.has('timeZone')) { setTimeZone(state.timeZone); heat.invalidate(); lower(); cvd.invalidate(); showStatus(); }
-    if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of [heat, ladder, depth, oi, delta, ls, funding, lt, bars, script, cvd, candle, liq]) p.setPalette(state.theme); }
+    if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of themed) p.setPalette(state.theme); }
     if (changed.has('material')) { applyMaterial(); hub.setTape(tapeWanted()); }
     // The page's glass draws its next frame with the new strength; the Tape's reads it with each frame it draws.
     if (changed.has('waveStrength')) { glass.setStrength(state.waveStrength); candle.invalidate(); }
@@ -429,7 +441,7 @@ async function main(): Promise<void> {
     if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'waveStrength', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'tabPrice', 'tabIcon', 'chartType', 'phoneHistory'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
   });
 
-  for (const p of [heat, ladder, depth, oi, delta, ls, funding, lt, bars, script, cvd, candle, liq]) p.setPalette(store.state.theme);
+  for (const p of themed) p.setPalette(store.state.theme);
   layout(); ladder.syncControls(); lt.refresh();
   layouts.seedDefault();
   arrange.setPaneHeight('bars', tableHeight(store.state.barStats, store.state.barStatOptions));
