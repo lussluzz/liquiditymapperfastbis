@@ -32,7 +32,8 @@ import { buildKeyLevelPanel } from './keylevels/panel.ts';
 import { buildLiqLevelPanel } from './liq-panel.ts';
 import type { LiqLevelsSource } from './liq-levels.ts';
 import { liqLevelsUrl } from './liq-url.ts';
-import { buildVwapPanel, type WhaleInfo } from './vwap/panel.ts';
+import type { AnchorSnapshot } from './traded/anchor.ts';
+import { buildVwapPanel, type RollingReach, type VwapMarkets, type WhaleInfo } from './vwap/panel.ts';
 import { buildFootprintPanel } from './footprint/panel.ts';
 import type { FlowBook } from './flow-book.ts';
 import type { KeyLevelHistory } from './keylevels/history.ts';
@@ -47,7 +48,8 @@ import { CONTRAST } from './heatmap/window.ts';
 import { CHART_TYPES, chartTypeGlyph, chartTypeName, chartTypeTip, type ChartType } from './chart-type.ts';
 import { compactBar, isCoarse, isPhone, onLayoutMode } from './device.ts';
 import { effectiveChoice, isHandheldPhone, savesData, type PhoneHistory } from './history-window.ts';
-import { openSheet, type Sheet } from './sheet.ts';
+import { closeSheet, openSheet, type Sheet } from './sheet.ts';
+import { toast } from './toast.ts';
 import { wakeLockSupported } from './wake.ts';
 import { LANGUAGES, language, pickLanguage, saveLanguage, savedLanguage } from './i18n.ts';
 import { t, tn } from './i18n.ts';
@@ -191,12 +193,19 @@ export class Toolbar {
   #vwapPanel: Panel | null = null;
   /** What the page knows of the whale sums (set by the page), for the VWAP panel. */
   whaleInfo: () => WhaleInfo | null = () => null;
+  /** Whether each rolling VWAP's history holds a whole window (set by the page), for the VWAP panel to say which have no line. */
+  rollingReach: RollingReach = () => 'coming';
+  /** The markets the VWAP lines read and how each stands (`HeatPane.vwapMarketStates`), for the VWAP panel. */
+  vwapMarkets: VwapMarkets = () => [];
   /** The key levels' candles (set by the page), for the panel to say whose they are and whether they could be read. */
   keyHistory: KeyLevelHistory | null = null;
   /** The volume profile's candles of one bar size (set by the page), for its panel to say whether they could be read. */
   profileHistory: ((barMs: number) => KeyLevelHistory) | null = null;
   /** The room the map's profiles have (heat-pane.ts `profileRoom`), for the Volume profile panel to say what has none; set by the page. */
   profileRoom: (() => ProfileRoom) | null = null;
+  /** The columns' anchored window and taking it again now (heat-pane.ts `anchoredWindow`, `updateAnchored`), for the Volume profile panel; set by the page. */
+  anchoredWindow: (() => AnchorSnapshot | null) | null = null;
+  updateAnchored: (() => void) | null = null;
   /** Where the page's data comes from (set by the page): a page reading the exchanges itself keeps liquidations only while it is open. */
   sourceKind: 'server' | 'browser' = 'server';
   #highlights = el('button', { class: 'led-btn', textContent: t('Highlights'), tip: t('What stands out: unusual volume, open-interest changes and depth imbalance') });
@@ -371,8 +380,8 @@ export class Toolbar {
     };
     this.#footprint.onclick = () => this.store.set(togglePatch(this.store.state, 'footprint'));
     this.#settingsKeys.vwap.onclick = () => {
-      const build = (tools: HTMLElement, body: HTMLElement): void => buildVwapPanel(this.store, tools, body, () => this.#vwapPanel?.render(build), this.whaleInfo);
-      this.#vwapPanel = this.#track(togglePanel(this.#settingsKeys.vwap, { title: t('VWAP'), width: 420, align: 'left', stays: true, onClose: () => { this.#vwapPanel = null; if (this.store.state.vwapAnchoring) this.store.set({ vwapAnchoring: false }); } }, build), build);
+      const build = (tools: HTMLElement, body: HTMLElement): void => buildVwapPanel(this.store, tools, body, () => this.#vwapPanel?.render(build), this.whaleInfo, this.rollingReach, this.vwapMarkets);
+      this.#vwapPanel = this.#track(togglePanel(this.#settingsKeys.vwap, { title: t('VWAP'), width: 420, align: 'left', stays: true, onClose: () => { this.#vwapPanel = null; if (this.store.state.vwapAnchoring && !this.#placing) this.store.set({ vwapAnchoring: false }); } }, build), build);
     };
     this.#vwap.onclick = () => this.store.set(togglePatch(this.store.state, 'vwap'));
     this.#scripts.onclick = () => this.store.set({ show: { ...this.store.state.show, script: !this.store.state.show.script } });
@@ -421,8 +430,11 @@ export class Toolbar {
       this.#track(togglePanel(this.#alertKeys.waves, { title: t('Waves'), width: 400, align: 'left' }, build), build);
     };
     this.#settingsKeys.traded.onclick = () => {
-      const build = (tools: HTMLElement, body: HTMLElement): void => buildTradedPanel(this.store, tools, body, () => this.#tradedPanel?.render(build), () => gridStepFor(this.store.state.mark.price > 0 ? this.store.state.mark.price : 1), { browser: this.sourceKind === 'browser', candles: this.profileHistory, room: () => this.profileRoom?.() ?? null });
-      this.#tradedPanel = this.#track(togglePanel(this.#settingsKeys.traded, { title: t('Volume profile'), width: 520, align: 'left', onClose: () => { this.#tradedPanel = null; } }, build), build);
+      const build = (tools: HTMLElement, body: HTMLElement): void => buildTradedPanel(this.store, tools, body, () => this.#tradedPanel?.render(build), () => gridStepFor(this.store.state.mark.price > 0 ? this.store.state.mark.price : 1), { browser: this.sourceKind === 'browser', candles: this.profileHistory, room: () => this.profileRoom?.() ?? null, anchored: () => this.anchoredWindow?.() ?? null, updateNow: () => this.updateAnchored?.() });
+      // While Place the anchor is armed the panel stays open over a click on the map (that click places it, Sol: closing it first disarmed
+      // it); otherwise a press outside closes it as before.
+      const store = this.store;
+      this.#tradedPanel = this.#track(togglePanel(this.#settingsKeys.traded, { title: t('Volume profile'), width: 520, align: 'left', get stays(): boolean { return store.state.profileAnchoring; }, onClose: () => { this.#tradedPanel = null; if (this.store.state.profileAnchoring && !this.#placing) this.store.set({ profileAnchoring: false }); } }, build), build);
     };
     this.#traded.onclick = () => this.store.set(togglePatch(this.store.state, 'traded'));
     this.#settingsKeys.absorption.onclick = () => {
@@ -503,6 +515,19 @@ export class Toolbar {
   refreshOpenPanel(): void { if (this.#open && openedPanel() === this.#open.panel) this.#open.redraw(); }
   /** Redraw the Volume profile panel if it is the one open: what of the profiles has no room changed (a resize), and its sketch and note say so. */
   refreshTradedPanel(): void { if (this.#tradedPanel && this.#open?.panel === this.#tradedPanel) this.refreshOpenPanel(); }
+  /** Set while the panels close for an anchor to be placed on a phone, so their closing does not disarm it. */
+  #placing = false;
+  /**
+   * An anchor (the VWAP's or the profile's) was armed: on a phone or a touch tablet its panel and the Settings sheet cover the map, so they
+   * close, the placement staying armed, and a note says to tap the candle, with Cancel (Sol, code review 2026-11-10: the sheet's scrim took
+   * the tap and its closing disarmed the placement). On a desktop the panel stays open over the map and nothing changes.
+   */
+  anchorArmed(): void {
+    if (!compactBar()) return;
+    this.#placing = true;
+    try { this.#vwapPanel?.close(); this.#tradedPanel?.close(); closeSheet(); } finally { this.#placing = false; }
+    toast(t('Tap the candle on the map where the anchor goes.'), { ms: 30_000, action: { label: t('Cancel'), run: () => this.store.set({ vwapAnchoring: false, profileAnchoring: false }) } });
+  }
 
   /**
    * The Go to panel: a date and time on the page's clock, the map centred on it at its zoom. It says how far back the depth and the candles
