@@ -86,6 +86,9 @@ const UPCOMING = 'upcoming';
  * and in Settings only once a second layer can be drawn; while Liquidity is the only one it is left out.
  */
 const LAYER_CHOICE = AVAILABLE_LAYERS.length > 1;
+/** The heatmap's colour range and smoothing, said alike by Settings' rows and the Heatmap key's panel. */
+const COLOUR_RANGE_TIP = t('Auto: the colour window follows the data (recomputed on recenter, market change, zoom and every 10 s). Off: it stays where it is.');
+const SMOOTHING_TIP = t('Vertical smoothing when price rows get thin (zoomed out): Auto smooths with a ~5 px Gaussian below 15 px per row, so far walls stay visible; Off draws every row exactly.');
 
 /** The Chart type menu's row that opens the Candle colours panel (not a chart type). */
 const CANDLE_COLOURS_ITEM = 'candle-colours';
@@ -270,8 +273,8 @@ export class Toolbar {
     style: el('select', { ariaLabel: t('Colours'), tip: `${t('Heatmap colouring.')} ${HEAT_STYLES.map(s => `${s.label}: ${s.title}.`).join(' ')}` }),
     lo: el('i'), hi: el('i'), legend: el('span', { class: 'legend' }),
     contrast: el('input', { type: 'range', min: String(CONTRAST.min), max: String(CONTRAST.max), step: '1', tip: t('Contrast: right reveals thinner liquidity, left keeps only the biggest walls, and the far left tones even those down. Double-click to reset.') }),
-    smooth: el('select', { ariaLabel: t('Smoothing'), tip: t('Vertical smoothing when price rows get thin (zoomed out): Auto smooths with a ~5 px Gaussian below 15 px per row, so far walls stay visible; Off draws every row exactly.') }),
-    auto: el('button', { class: 'led-btn', textContent: t('Auto'), tip: t('Auto: the colour window follows the data (recomputed on recenter, market change, zoom and every 10 s). Off: it stays where it is.') }),
+    smooth: el('select', { ariaLabel: t('Smoothing'), tip: SMOOTHING_TIP }),
+    auto: el('button', { class: 'led-btn', textContent: t('Auto'), tip: COLOUR_RANGE_TIP }),
   };
   #source = el('select', { class: 'heat-source', ariaLabel: t('Source'), tip: t('Heatmap source') });
   #theme = el('button', { class: 'theme-btn', tip: t('Theme: hover to preview, click to keep') });
@@ -323,6 +326,12 @@ export class Toolbar {
   #heatctl = el('span', { class: 'heatctl' });
   /** The colour ramp and the contrast slider under it: one unit, so the Settings sheet can give it a row of its own. */
   #heatScale = el('span', { class: 'scale' });
+  /**
+   * The full bar's key to the heatmap's colour range and smoothing (Karl, 2026-11-12: each button a precious resource), joined to the end of
+   * the colour scale as one unit; a phone's Settings keeps them as rows of their own.
+   */
+  #heatKey = settingsKey(t('Heatmap'));
+  #heatSplit = el('span', { class: 'split heat-split' });
   #spacer = el('span', { class: 'spacer' });
   /** Phone only: the button that opens Settings, where every control that does not fit the top bar lives. */
   #more = el('button', { type: 'button', class: 'more-btn', ariaLabel: t('Settings'), tip: t('Settings: panels, heatmap colouring, venues, sound, theme and the guide.') });
@@ -479,6 +488,10 @@ export class Toolbar {
       const build = (tools: HTMLElement, body: HTMLElement): void => this.#buildWaves(tools, body);
       this.#track(togglePanel(this.#alertKeys.waves, { title: t('Waves'), width: 400, align: 'left' }, build), build);
     };
+    this.#heatKey.onclick = () => {
+      const build = (tools: HTMLElement, body: HTMLElement): void => this.#buildHeat(tools, body);
+      this.#track(togglePanel(this.#heatKey, { title: t('Heatmap'), width: 380, align: 'left' }, build), build);
+    };
     this.#settingsKeys.traded.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => buildTradedPanel(this.store, tools, body, () => this.#tradedPanel?.render(build), () => gridStepFor(this.store.state.mark.price > 0 ? this.store.state.mark.price : 1), { browser: this.sourceKind === 'browser', candles: this.profileHistory, room: () => this.profileRoom?.() ?? null, anchored: () => this.anchoredWindow?.() ?? null, updateNow: () => this.updateAnchored?.(), anchorStart: a => this.profileAnchorStart?.(a) ?? { state: 'coming' }, anchorBar: at => this.profileAnchorBar?.(at) ?? 5 * 60_000 });
       // While Place the anchor is armed the panel stays open over a click on the map (that click places it, Sol: closing it first disarmed
@@ -551,7 +564,7 @@ export class Toolbar {
    * the Settings sheet, grouped by purpose. The same elements move in both directions, so their handlers and state survive a rotation
    * or a window resize.
    */
-  /** The heatmap colour controls as the desktop toolbar has them, in one group. */
+  /** The heatmap's colour controls gathered in one holding place, from which the full bar's Heatmap deck and a phone's Settings take them. */
   #fillHeatControls(): void { this.#heatctl.replaceChildren(this.#heat.style, this.#heatScale, this.#heat.auto, this.#heat.smooth); }
 
   /** The desktop status bar takes the language and theme buttons (and the connection text) from the top bar. */
@@ -749,6 +762,8 @@ export class Toolbar {
     if (!compactBar()) {
       this.#sheet?.close();
       this.#fillHeatControls();
+      // The colour scale with the Heatmap key at its end (the scale may come back from a phone's Settings row).
+      this.#heatSplit.replaceChildren(this.#heatScale, this.#heatKey);
       const inCorner = this.#mapHost !== null;
       if (inCorner) { this.#mapTools.replaceChildren(this.#layoutCorner, this.#goto, this.#rangeCorner, ...(this.#drawCorner ? [this.#drawCorner] : []), this.#recenter); this.#mapHost!.prepend(this.#mapTools); }
       const host = this.#statusHost;
@@ -769,7 +784,7 @@ export class Toolbar {
       this.#decks = [
         deck('market', t('Market'), [this.#coin, this.#market], [this.#scope, this.#venuesButton!]),
         deck('time', t('Time'), [this.#timeframes], inCorner ? [] : [this.#recenter]),
-        deck('heat', t('Heatmap'), [this.#source, ...(LAYER_CHOICE ? [this.#layer] : []), this.#heat.style], [this.#heatScale, this.#heat.auto, this.#heat.smooth]),
+        deck('heat', t('Heatmap'), [this.#source, ...(LAYER_CHOICE ? [this.#layer] : []), this.#heat.style], [this.#heatSplit]),
         deck('panels', t('Panels'), [this.#toggles]),
         // The Range tool is the map corner's Select when the map holds its tools (Karl, 2026-10-27: the deck's Range was the same button twice).
         deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, ...(liqLevelsUrl() ? [sp.liqLevels] : []), sp.absorption], [sp.traded, sp.tpo, sp.keyLevels, sp.vwap, this.#scriptsSplit, ...(inCorner ? [] : [this.#range])]),
@@ -1144,6 +1159,20 @@ export class Toolbar {
       rangeRow(t('Sensitivity'), t('How far above its recent average something must be: lower flags more, higher flags only the extremes.'), { ...HIGHLIGHT_LIMITS.mult, value: h.mult, format: v => `${v}σ` }, mult => set({ mult })),
       rangeRow(t('Baseline'), t('How many preceding bars the average and spread are taken from.'), { ...HIGHLIGHT_LIMITS.length, value: h.length, format: v => tn(v, '{n} bar', '{n} bars') }, length => set({ length })),
       note(t('A bar is flagged when its value exceeds the mean plus the sensitivity times the standard deviation of the bars before it. The bar itself never raises its own threshold, and nothing is flagged until a dozen bars exist.')),
+    );
+  }
+
+  /**
+   * The Heatmap key's panel: the colour range (the window the colours span follows the data, or stays) and the vertical smoothing, the two
+   * that left the bar (Karl, 2026-11-12). Both are choices of Auto or Off, as the tips say; a phone's Settings has them as rows.
+   */
+  #buildHeat(tools: HTMLElement, body: HTMLElement): void {
+    const set = (change: Partial<AppState['heat']>): void => { this.store.set({ heat: { ...this.store.state.heat, ...change } }); };
+    const h = this.store.state.heat, choices: [string, string][] = [['auto', t('Auto')], ['off', t('Off')]];
+    tools.append(helpButton('heatmap'));
+    body.append(
+      selectRow(t('Colour range'), COLOUR_RANGE_TIP, choices, h.auto ? 'auto' : 'off', v => set({ auto: v === 'auto' })),
+      selectRow(t('Smoothing'), SMOOTHING_TIP, choices, h.smooth, v => set({ smooth: v === 'off' ? 'off' : 'auto' })),
     );
   }
 
