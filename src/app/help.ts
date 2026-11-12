@@ -28,7 +28,7 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
     title: t('Profile'), guide: 'profile',
     tip: t('The column at the right edge of the chart: how much liquidity is resting at each price right now, added up over the enabled venues. Pink are asks (sellers waiting above), green are bids (buyers waiting below).'),
     body: [t('The profile is the heatmap collapsed into one moment: for every price, the total size of the orders waiting there right now, summed over the enabled venues. Long bars are walls.'),
-      t('Hover it and the Mirror comparison appears (switch that off with the Mirror button).')],
+      t('Hover it and the Mirror comparison appears (switch that off with Mirror in the order book\'s Cues panel).')],
   },
   traded: {
     title: t('Volume profile'), guide: 'volume-profile',
@@ -64,12 +64,12 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
       t('The whale VWAP averages only the large market orders that are recorded (the same orders as the trade bubbles, from the size you choose), buys and sells apart, on the exchanges switched on, since the session began or since the recording did.')],
   },
   tpo: {
-    title: t('TPO'), guide: 'profile',
+    title: t('TPO'), guide: 'tpo',
     tip: t('TPO (Market Profile): each half hour of a day stacked as a block at every price it traded at, so the day folds into the shape of where the market spent its time.'),
     body: [t('Each day, week or session (in the zone the Volume profile uses) is cut into blocks, half an hour each by default, lettered A to Z and then a to z. A block stands at every row its half hour traded at, and the rows are stacked from the window\'s start: the longest row is where price spent the most time, its point of control, and the value area holds 70 % of the blocks around it. The blocks of the first hour make the initial balance (IBH, IBL; the first block, where blocks are an hour or longer); the arrows mark the window\'s first price and its last.'),
       t('At the top and bottom, two or more rows of a single block are a tail: price was there briefly and left. A top or bottom row of two or more blocks is poor: price kept returning without going further. These calls depend on where the row edges fall, so each one is worked out on four row grids, each moved by part of a row, and says how many of the four agree (4/4 is steady, 2/4 could go either way). Single prints are rows of one block between the tails.'),
       t('A block drawn as an outline is one where this market\'s wick went at least a row and 3 bp past the point most of the market\'s volume reached, from the other venues switched on, each moved by its usual gap to this market first: a price that venue printed alone. Rare on the largest markets.'),
-      t('U lays the blocks out in time, each half hour in its own column behind its own candles, and folds them back. Right-click a block to split its window there or merge it with the window before or after (kept per coin, kind of window and block length). The candles are the chart market\'s, read from the exchange; the block under way follows the chart\'s own price. While the TPO shows, the Volume profile\'s lines of the same windows follow the TPO\'s levels.'),
+      t('U lays the blocks out in time, each half hour in its own column behind its own candles, and folds them back. Right-click a block (on a touch screen, tap it, then tap its box) to split its window there or merge it with the window before or after (kept per coin, kind of window and block length). The candles are the chart market\'s, read from the exchange; the block under way follows the chart\'s own price. While the TPO shows, the Volume profile\'s lines of the same windows follow the TPO\'s levels.'),
       t('Every window in view is drawn (or, under How many, the latest few), back about thirteen months: scroll the chart back to see older days. Zoomed out, each row is one bar as long as its blocks, in the colour of when the market was at that price. Candles from can take markets you tick instead of the chart market: each block then spans where most of their volume traded, and a row only one of them reached is drawn hollow.')],
   },
   delta: {
@@ -134,9 +134,9 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
     body: [],
   },
   candles: {
-    title: t('Candles'), guide: 'chart',
-    tip: t('Draw the price candles. Turn them off to see the heatmap and the trade bubbles without anything on top.'),
-    body: [t('The Chart type menu, after the timeframes, draws the price as candles, outline candles, OHLC bars or a line of closes. Its last row, Candle colours, gives rising and falling candles a body, border and wick colour of your own; a part left at the theme\'s colour follows the theme.'),
+    title: t('Chart type'), guide: 'chart',
+    tip: t('How the map draws the price: candles, outline candles, OHLC bars or a line, from the Chart type button after the timeframes, lit while the price is drawn. Hidden takes the price off the map, so the heatmap and the trade bubbles show with nothing on top.'),
+    body: [t('Pointing at a row of the Chart type menu shows it on the map before it is chosen, and Hidden keeps the type for when the price comes back. The menu\'s last row, Candle colours, gives rising and falling candles a body, border and wick colour of your own; a part left at the theme\'s colour follows the theme.'),
       t('Zoomed out until the candles would be thinner than two pixels, the chart draws longer ones (4h, 1d, up to a week) made of the same candles and the exchange\'s history, and the legend names their length; a candle clicked to place an anchor is the one drawn. A line chart stays a line.')],
   },
   footprint: {
@@ -154,7 +154,7 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
   },
   mirror: {
     title: t('Mirror'), guide: 'mirror',
-    tip: t('Hover comparison. With it on, pointing at the profile column or the order book compares the liquidity between the price and your pointer with the equal stretch on the other side, and says which side has more. Nothing changes until you hover; that is how it works.'),
+    tip: t('Hover comparison: pointing at the order book, the profile column or the liquidation column compares what stands between the price and your pointer with the equal stretch on the other side, and says which side has more. Nothing changes until you hover.'),
     body: [],
   },
   volume: {
