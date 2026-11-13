@@ -25,6 +25,8 @@ import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/a
 import { measureDef, type MetricFlags, type ProfileMetric } from './measures/registry.ts';
 import { NO_FLAGS, type Thresholds } from './measures/measure.ts';
 import { PRINTS_PER_ANSWER } from '../shared/prints.ts';
+import { MAX_COVERAGE_INSTRUMENTS } from '../shared/coverage.ts';
+import { SEAM_SLACK_MS, TNS_HOLE_MS, recordedStretch } from './tns/model.ts';
 import { readCandles, webGet } from '../shared/history.ts';
 import { KeyLevelHistory, type HistoryTarget } from './keylevels/history.ts';
 import { TPO_DAYS_REACH_MS, TPO_MAX_BARS, TPO_REACH_MS } from './tpo/settings.ts';
@@ -168,7 +170,7 @@ export function defaultMarket(markets: readonly { instrumentId?: string; venue?:
 }
 
 /** The Depth pane's answer: `k` nested bands per pixel column, `bid[x * k + j]` the bid USD within band j (each band holds the inner ones), and the same in coins. */
-export interface DepthAnswer { k: number; bid: Float32Array; ask: Float32Array; bidCoin: Float32Array; askCoin: Float32Array }
+export interface DepthAnswer { k: number; bid: Float32Array; ask: Float32Array; bidCoin: Float32Array; askCoin: Float32Array; /** Per pixel column, how many of the markets asked for had a book column there, and whether a price centre was found; the book columns' own length (ms). Absent for liquidation levels. */ present?: Uint16Array; centred?: Uint8Array; stepMs?: number }
 
 export class Hub {
   readonly priceHistory: ChartPriceHistory;
@@ -284,7 +286,7 @@ export class Hub {
   readonly prints = new PrintBook();
   /** Called with each batch of new large trades from the live stream (for sounds). */
   onPrints: (fresh: Print[]) => void = () => {};
-  /** Called with every large trade the live stream sent, new to the book or not (Time & sales: it lists what arrives, and asks for nothing). */
+  /** Called with every large trade the live stream sent, new to the book or not (Time & sales lists what arrives). */
   onLivePrints: (live: Print[]) => void = () => {};
   /** Called when the print book changed, so the chart can redraw its bubbles. */
   onPrintsChanged: () => void = () => {};
@@ -610,9 +612,9 @@ export class Hub {
         const message = event.data;
         if (message.type === 'ready') resolve();
         else if (message.type === 'error') console.error('raster worker:', message.message);
-        else if (message.type === 'lt') { this.#ltWaiters.get(message.id)?.({ times: message.times, bid: message.bid, ask: message.ask, estimated: message.estimated, stepMs: message.stepMs }); this.#ltWaiters.delete(message.id); }
+        else if (message.type === 'lt') { this.#ltWaiters.get(message.id)?.({ times: message.times, bid: message.bid, ask: message.ask, estimated: message.estimated, stepMs: message.stepMs, ...(message.parts ? { parts: message.parts } : {}), ...(message.approx ? { approx: message.approx } : {}) }); this.#ltWaiters.delete(message.id); }
         else if (message.type === 'cell') { this.#cellWaiters.get(message.id)?.(message.items); this.#cellWaiters.delete(message.id); }
-        else if (message.type === 'depth') { this.#depthWaiters.get(message.id)?.({ k: message.k, bid: message.bid, ask: message.ask, bidCoin: message.bidCoin, askCoin: message.askCoin }); this.#depthWaiters.delete(message.id); }
+        else if (message.type === 'depth') { this.#depthWaiters.get(message.id)?.({ k: message.k, bid: message.bid, ask: message.ask, bidCoin: message.bidCoin, askCoin: message.askCoin, present: message.present, centred: message.centred, stepMs: message.stepMs }); this.#depthWaiters.delete(message.id); }
         else {
           const bounds = this.#inflight.get(message.id);
           this.#inflight.delete(message.id);
@@ -1225,6 +1227,37 @@ export class Hub {
   }
 
   /**
+   * The orders from `minUsd` (the coin's dollars: the list's own smallest order) the recording holds from at most `lookbackMs` before `until`
+   * (when the stream opened, the page's clock) up to it, with the holes in its coverage: Time & sales fills its list with them when it first
+   * shows. Both questions go to the source's own recording (in the browser the engine's memory, which holds the history service's hour files
+   * the page reads at opening for the heatmap anyway; else the local server), never to an exchange: one coverage question, then one to six
+   * for orders. An answer cut at its largest orders is no complete list, so the window is halved (on the same coverage) until one is not. On
+   * the server's page it waits for the map's first columns, as every history read does. Times are the source's clock (`#sourceSkew`).
+   * `minHole` is the source's shortest hole (`TNS_HOLE_MS`), which the list also applies to what is left of a hole once the orders the
+   * recording holds inside it are counted (`TnsBook.prefill`). Null when the source keeps no coverage record, recorded nothing of the window,
+   * or every window was cut.
+   */
+  async recentPrints(ids: readonly string[], lookbackMs: number, until: number, minUsd: number): Promise<{ prints: Print[]; from: number; holes: [number, number][]; minHole: number } | null> {
+    if (!this.source.coverage || !ids.length) return null;
+    if (this.mapFirst()) await this.#afterMap();
+    const end = until - this.#sourceSkew, minHole = TNS_HOLE_MS[this.source.kind];
+    let start = end - lookbackMs;
+    const answer = await this.source.coverage(ids.slice(0, MAX_COVERAGE_INSTRUMENTS), 'trades', start, end);
+    const spans = answer.instruments.map(i => i.spans);
+    for (let tries = 0; tries < 6; tries++) {
+      const stretch = recordedStretch(spans, start, end, minHole);
+      if (!stretch) return null;
+      // A few seconds past the seam: an order stamped after it that the stream had not sent yet is the recording's (each order is kept once).
+      const rows = await this.source.prints(stretch.since, end + SEAM_SLACK_MS, minUsd);
+      // Back on the page's clock, as the list's seam is (the orders keep their exchange times either way).
+      const skew = this.#sourceSkew;
+      if (rows.length < PRINTS_PER_ANSWER) return { prints: rows, from: stretch.since + skew, holes: stretch.holes.map(([a, b]) => [a + skew, b + skew] as [number, number]), minHole };
+      start = Math.round((stretch.since + end) / 2);
+    }
+    return null;
+  }
+
+  /**
    * Make sure the liquidation book covers `view` from `minUsd`, as `ensurePrints` does for the trade bubbles: history once per window and
    * smallest size, the live stream after that. A source without liquidations (an older server) is asked again a minute later.
    */
@@ -1671,10 +1704,13 @@ export class Hub {
     return new Promise(resolve => { this.#cellWaiters.set(id, resolve); this.#post({ type: 'cell', id, enabled, t0, t1, p0, p1 }); });
   }
 
-  /** Liquidity Tracker series over [t0, t1] for the enabled instruments: from the recorded columns, or (`lane`) from the trackers the lane holds. `stepMs`: that of the windows. */
-  lt(enabled: string[], t0: number, t1: number, params: LtParams, lane = false): Promise<LtSeries & { stepMs?: number }> {
+  /**
+   * Liquidity Tracker series over [t0, t1] for the enabled instruments: from the recorded columns, or (`lane`) from the trackers the lane holds.
+   * `stepMs`: that of the windows. `parts`: each market's own part too (`LtParts`, in the order of `enabled`), for the pane's table.
+   */
+  lt(enabled: string[], t0: number, t1: number, params: LtParams, lane = false, parts = false): Promise<LtSeries & { stepMs?: number }> {
     const id = ++this.#rasterId + 2_000_000;
-    return new Promise(resolve => { this.#ltWaiters.set(id, resolve); this.#post({ type: 'lt', id, enabled, t0, t1, params, lane }); });
+    return new Promise(resolve => { this.#ltWaiters.set(id, resolve); this.#post({ type: 'lt', id, enabled, t0, t1, params, lane, parts }); });
   }
 
   /** New minutes may have been recorded: the next `loadColumns` asks again for the windows that could have changed. */

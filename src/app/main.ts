@@ -28,13 +28,20 @@ import { ScreenWake } from './wake.ts';
 import { HeatPane, gutter, gutterAt, leftGutter } from './panes/heat-pane.ts';
 import { LadderPane } from './panes/ladder-pane.ts';
 import { CvdPane } from './panes/cvd-pane.ts';
+import { TNS_LOOKBACK_MS } from './tns/model.ts';
 import { BarStatsPane, barStatsHeldKey, DepthPane, LtPane, OiPane, oiHeldKey } from './panes/lower-panes.ts';
 import { LiqPane } from './panes/liq-pane.ts';
 import { setTourDemo } from './tour/demo.ts';
 import { liqLevelsUrl } from './liq-url.ts';
 import { DeltaPane, deltaHeldKey } from './panes/delta-pane.ts';
 import { NlnsSource } from './delta/nlns-source.ts';
-import { LsPane } from './panes/ls-pane.ts';
+import { LsPane, lsIds } from './panes/ls-pane.ts';
+import { LsRangeSummary, lsHeldKey } from './range/ls-lines.ts';
+import { FundingRangeSummary } from './range/funding-lines.ts';
+import { LtRangeSummary } from './range/lt-lines.ts';
+import { DepthRangeSummary } from './range/depth-lines.ts';
+import { activeIds, emptyScopeMessage } from './scope.ts';
+import { ScriptRangeSummary } from './range/script-lines.ts';
 import { FundingPane } from './panes/funding-pane.ts';
 import { TabTitle } from './tab-title.ts';
 import { ScriptPane } from './panes/script-pane.ts';
@@ -195,7 +202,7 @@ async function main(): Promise<void> {
     { id: 'script', root: script.root, height: 220, min: 60, head: script.header, closable: false },
   ];
   const arrange = new Layout(main, chart, { left: flowCol, right: side }, strip, [
-    { id: 'cvd', root: cvd.root, head: cvd.controls, title: t('Flow'), views: [{ id: 'flow', title: t('Flow') }, { id: 'tns', title: t('Time & sales') }] },
+    { id: 'cvd', root: cvd.root, head: cvd.controls, title: t('Flow'), views: [{ id: 'flow', title: t('Flow') }, { id: 'tns', title: t('Time & sales') }, { id: 'all', title: t('All trades') }] },
     { id: 'book', root: ladder.root, head: ladder.controls, title: t('Order Book') },
   ]);
   // What the person does to the layout (layouts/actions.ts): the layouts panel, a pane's close button and the edge tab of a closed side pane (the Panels row in the top bar flips the same switches).
@@ -204,10 +211,15 @@ async function main(): Promise<void> {
     env: () => ({ width: window.innerWidth, height: chart.clientHeight || Math.max(400, window.innerHeight - 200), held: scriptRows(store.state) ? ['script' as const] : [] }),
   });
   arrange.onClose = id => layouts.hide(id, arrange.title(id)); arrange.onOpen = id => layouts.setPane(id, true);
-  arrange.onView = (id, view) => { if (id === 'cvd' && (view === 'flow' || view === 'tns') && store.state.flowView !== view) store.set({ flowView: view }); };
-  // Time & sales takes every order the live stream sends (it asks for nothing); a click on a row takes the map to the order.
+  arrange.onView = (id, view) => { if (id === 'cvd' && (view === 'flow' || view === 'tns' || view === 'all') && store.state.flowView !== view) store.set({ flowView: view }); };
+  // All trades reads the tape ring; a click on a row takes the map to the order.
+  cvd.trades.ring = () => hub.tape;
+  cvd.trades.onGoTo = (at, price) => heat.focusOn({ t0: at, t1: at, p0: price, p1: price });
+  // Time & sales takes every order the live stream sends; a click on a row takes the map to the order.
   hub.onLivePrints = live => cvd.tns.take(live);
   cvd.tns.onGoTo = (at, price) => heat.focusOn({ t0: at, t1: at, p0: price, p1: price });
+  // The list starts with the orders the recording already holds (the browser's memory or the local server: free), over every market of the coin.
+  cvd.tns.prefill = (until, minUsd) => hub.recentPrints(store.state.markets.flatMap(m => { const id = m.instrumentId ?? m.id; return id ? [id] : []; }), TNS_LOOKBACK_MS, until, minUsd);
   // A desktop folds its side columns to their edge tabs when the map would be left too little plot (layouts/dock-model.ts `chooseFold`).
   arrange.plotAt = paneW => paneW - gutterAt(paneW, store.state);
   toolbar.layouts = layouts;
@@ -251,6 +263,42 @@ async function main(): Promise<void> {
   range.useProvider({
     pane: 'bars', title: () => t('Bar stats'), shown: () => store.state.show.stats, barMs: () => TIMEFRAMES[store.state.timeframe] ?? 3_600_000,
     lines: (sel, shown) => barsSummary.lines(sel, bars.rangeHeld, shown, barStatsHeldKey(store.state, heat.footprintMarkets(store.state)), pageNow(), store.state.timeZone, !enabledStats(store.state.barStats).length),
+  });
+  // A drag in the Long/Short pane sums up each venue's readings over the stretch (range/ls-lines.ts), as the pane draws them.
+  const lsSummary = new LsRangeSummary();
+  range.useProvider({
+    pane: 'ls', title: () => t('Long/Short'), shown: () => store.state.show.ls, barMs: () => TIMEFRAMES[store.state.timeframe] ?? 3_600_000,
+    lines: (sel, shown) => { const ids = lsIds(store.state, hub); return lsSummary.lines(sel, ls.rangeHeld, shown, lsHeldKey(store.state, ids), pageNow(), store.state.timeZone, !ids.length); },
+  });
+  // A drag in the Funding pane sums up the venue it shows over the stretch (range/funding-lines.ts): settled funding by the time each
+  // settlement paid for, the funding accruing now apart, the premium's closed readings and on Hyperliquid who opened.
+  const fundingSummary = new FundingRangeSummary();
+  range.useProvider({
+    pane: 'funding', title: () => t('Funding'), shown: () => store.state.show.funding, barMs: () => TIMEFRAMES[store.state.timeframe] ?? 3_600_000,
+    lines: (sel, shown) => { const key = funding.rangeKey(store.state); return fundingSummary.lines(sel, funding.rangeHeld, shown, key ?? '', pageNow(), store.state.timeZone, key === null); },
+  });
+  // A drag in the Scripts pane sums up each script drawn in it (range/script-lines.ts): its visible plots of one value a candle over the
+  // closed candles, in their own values. It reads only what the pane drew: it never starts a run.
+  const scriptSummary = new ScriptRangeSummary();
+  range.useProvider({
+    pane: 'script', title: () => t('Scripts'), shown: () => scriptRows(store.state), barMs: () => TIMEFRAMES[store.state.timeframe] ?? 3_600_000,
+    lines: (sel, shown) => scriptSummary.lines(sel, script.rangeHeld, shown, script.rangeKey(store.state), pageNow(), replaying(), store.state.timeZone, !script.hasRows),
+  });
+  // Why the order-book panes have no venue to read, or '': the Spot / Perp filter leaves none, or every venue's chip is off.
+  const noVenue = (s: typeof store.state): string => emptyScopeMessage(s) ?? (s.levels?.books.length && !activeIds(s).length ? t('No venue is on: switch one on to sum up the order books.') : '');
+  // A drag in the Depth pane sums up its bands over the columns drawn (range/depth-lines.ts): the order book's columns holding every venue, or
+  // the liquidation levels' snapshots in force.
+  const depthSummary = new DepthRangeSummary();
+  range.useProvider({
+    pane: 'depth', title: () => t('Depth'), shown: () => store.state.show.depth, barMs: () => 60_000,
+    lines: (sel, shown) => depthSummary.lines(sel, depth.rangeHeld, shown, depth.rangeKey(store.state), pageNow(), store.state.timeZone,
+      store.state.depthSource === 'liq' ? depth.rangeEmpty(store.state, currentCoin().coin) : noVenue(store.state), replaying()),
+  });
+  // A drag in the Liquidity Tracker pane sums up its drawn bids and asks over the windows holding every venue asked for (range/lt-lines.ts).
+  const ltSummary = new LtRangeSummary();
+  range.useProvider({
+    pane: 'lt', title: () => t('Liquidity Tracker'), shown: () => store.state.show.lt, barMs: () => lt.rangeHeld?.stepMs ?? 60_000,
+    lines: (sel, shown) => ltSummary.lines(sel, lt.rangeHeld, shown, lt.rangeKey(store.state), pageNow(), store.state.timeZone, noVenue(store.state) !== '', replaying()),
   });
   toolbar.onRecenter = () => { heat.fit(); ladder.recenter(); };
   // The countdown under the price tag: a redraw a second when nothing else draws the map.
@@ -320,12 +368,18 @@ async function main(): Promise<void> {
   };
   // On a phone the Tape keeps the market's orders from the page's opening, whichever tab shows, so the ring runs there always.
   // The book's cues read the tape for the contact ripples and for what traded beside a change (the hover), so they want it whether or not the ripples are on.
-  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone() || (store.state.show.book && store.state.ladderCues.look !== 'off');
+  // All trades wants the tape while it is on screen (its column shown and not folded, or a phone's Flow tab open; its view chosen).
+  const allTradesShown = (): boolean => !cvd.root.hidden && !cvd.covered() && store.state.flowView === 'all';
+  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone() || (store.state.show.book && store.state.ladderCues.look !== 'off') || allTradesShown();
   // The map is covered while a view that fills the area shows, and the book while any tab but its own does (the Tape draws its own): they draw nothing then, and catch up when they show again.
   const coverPanes = (): void => { const covered = mapCovered(); heat.setSuspended(covered); hub.mapCovered = covered; ladder.setSuspended(isPhone() && dock.tab !== 'book'); };
-  dock.onChange = () => { candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); hub.setTape(tapeWanted()); };
+  // A phone shows one tab at a time: the flow column's lists show only on the Flow tab (they draw nothing and ask nothing behind another).
+  cvd.covered = () => isPhone() && dock.tab !== 'flow';
+  dock.onChange = () => { candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); cvd.viewChanged(); hub.setTape(tapeWanted()); };
   hub.setTape(tapeWanted());
-  hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); glass.tapeArrived(); ladder.tapeArrived(); };
+  hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); glass.tapeArrived(); ladder.tapeArrived(); cvd.trades.tapeArrived(); };
+  // The column shown or hidden, folded or its view changed: the tape is wanted again or not, and a list that now shows reads the ring.
+  cvd.onVisibility = () => { hub.setTape(tapeWanted()); };
   applyMaterial();
   // Trades recovered from a venue's history (the browser engine): no flow burst is sounded over them.
   hub.onRecovered = (id, _from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); };
@@ -505,9 +559,13 @@ async function main(): Promise<void> {
     if (changed.has('cvd')) cvd.settingsChanged();
     if (changed.has('flowView')) cvd.viewChanged();
     // A venue switched on or off filters the list as its own settings do: drawn again from the top.
+    // Each list: its own settings and the venues make its rows again; the whale size, a replay and the clock only redraw them.
     if (changed.has('tns') || changed.has('disabledVenues')) cvd.tns.refresh();
     else if (changed.has('sounds') || changed.has('replay') || changed.has('timeZone')) cvd.tns.redraw();
+    if (changed.has('trades') || changed.has('disabledVenues')) cvd.trades.refresh();
+    else if (changed.has('sounds') || changed.has('replay') || changed.has('timeZone')) cvd.trades.redraw();
     if (changed.has('connected') && !state.connected) cvd.tns.streamBroke();
+    if (changed.has('connected') && state.connected) cvd.tns.sourceReady();
     if (changed.has('status') || changed.has('connected') || changed.has('mark')) showStatus();
     if (changed.has('show') || changed.has('liqLevels')) layout(); else if (changed.has('traded')) { gutters(); arrange.refit(); }
     // The map's own columns change with the market too (the liquidation column is BTC's, the price axis as wide as its prices).
@@ -552,7 +610,10 @@ async function main(): Promise<void> {
     if (changed.has('chartType')) heat.invalidate();
     // The candles' own colours: the map, the book's price row and the Tape view's mark are drawn in them (Sol: nothing else asked for a frame).
     if (changed.has('candleColors')) { heat.invalidate(); ladder.invalidate(); candle.invalidate(); }
-    if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('show') || changed.has('timeZone')) range.refreshHeld();
+    // A pane's summary is read again when what it stands for changes (a hidden pane draws nothing to say so; its old snapshot is then stale).
+    if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('show') || changed.has('timeZone')
+      || changed.has('timeframe') || changed.has('marketId') || changed.has('seriesInstrument') || changed.has('replay')
+      || changed.has('lt') || changed.has('disabledVenues') || changed.has('scope') || changed.has('depthSource') || changed.has('depthBands') || changed.has('liqBands')) range.refreshHeld();
     if (changed.has('tradeBubbles') || changed.has('show')) hub.setTape(tapeWanted());
     if (changed.has('sounds')) heat.invalidate();
     if (changed.has('mark') && state.show.book) ladder.markMoved();
@@ -572,7 +633,7 @@ async function main(): Promise<void> {
     // A script that reads the change in open interest runs again once it lands, not at its next refresh.
     if (changed.has('oi') || changed.has('oiParts')) script.refresh();
     if (changed.has('show')) script.showChanged();
-    if (changed.has('lt') || changed.has('show') || changed.has('sounds')) lt.refresh();
+    if (changed.has('lt') || changed.has('ltTable') || changed.has('show') || changed.has('sounds')) lt.refresh();
     if (changed.has('sounds')) depth.syncSound();
     // The pane is sized again only when its rows change (which, or grouped and folded), not for every option: a height set by hand stays.
     const shape = `${state.barStats.join(',')}|${state.barStatOptions.grouped}|${state.barStatOptions.folded.join(',')}`;
@@ -585,7 +646,7 @@ async function main(): Promise<void> {
     if (['show', 'timeframe', 'oiFine', 'range', 'replay'].some(k => changed.has(k as never))) funding.invalidate();
     // The order book's row under the pointer: the map and the flow column's price strip draw its price.
     if (changed.has('bookHover')) { heat.invalidateHover(); cvd.syncBookHover(); }
-    if (changed.has('delta')) delta.settingsChanged();
+    if (changed.has('delta') || changed.has('deltaTable')) delta.settingsChanged();
     if ((changed.has('oi') || changed.has('oiParts')) && topShown(state)) heat.invalidate();
     if (changed.has('marketId')) candle.marketChanged();
     if (['levels', 'mark', 'disabledVenues', 'scope', 'markets', 'footprint', 'customMarkets', 'replay', 'bookGone', 'show'].some(k => changed.has(k as never))) candle.invalidate();
@@ -608,7 +669,8 @@ async function main(): Promise<void> {
   await hub.loadSeries();
   heat.fit(); lower();
   // A tab saved from the last visit is already showing: what it covers draws nothing from the start, not from the first tap (the dock only tells of a change).
-  candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes();
+  // The flow column's lists too: a phone that opens on another tab must not keep one shown behind it until the first tab change.
+  candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); cvd.viewChanged();
   // A reload that fails is said (the series on screen stays); the next minute asks again.
   window.setInterval(() => { hub.loadSeries(true).catch((error: unknown) => console.warn('The candles could not be read again:', error)); }, 60_000);
   // Each new open-interest reading is pushed as it lands (Hub.#oiPush); this load is the reconciliation: history, the markets added
