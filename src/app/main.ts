@@ -19,6 +19,8 @@ import { Sounds } from './sound/sounds.ts';
 import { Alerts } from './sound/alerts.ts';
 import { Toolbar } from './toolbar.ts';
 import { StatusBar } from './statusbar.ts';
+import { el } from './dom.ts';
+import { HeatCanvas } from './heatmap/canvas.ts';
 import { anchorDate, clock, clockYear, setTimeZone, zoneName } from './format.ts';
 import { installTips } from './tip.ts';
 import { installClassicSelects, installTouchSelects } from './touch-select.ts';
@@ -145,7 +147,8 @@ async function main(): Promise<void> {
   window.setInterval(showStatus, 1000);
 
   const heat = new HeatPane(chart, store, hub, kernels);
-  statusbar.setAccelerated(heat.gl.kind === 'webgl2');
+  // The dot says the browser gives no WebGL2 and how to turn acceleration on: not where WebGL2 is there but could not draw the heatmap (review r14).
+  statusbar.setAccelerated(!(heat.gl instanceof HeatCanvas && heat.gl.cause === 'no-webgl2'));
   toolbar.placeRecenter(heat.root);
   // The tour's moving picture of the right-button drag moves this chart (tour/demo.ts), and puts its view back when its step is left.
   setTourDemo({ plotRect: () => heat.plotRect(), zoom: (press, at) => heat.demoZoom(press, at), end: () => heat.endDemo() });
@@ -189,7 +192,17 @@ async function main(): Promise<void> {
   const liq = new LiqPane(main, store, hub);
   // Every pane drawn in the page's palette: a theme picked, or previewed by hover, repaints them all (one list, so none is left in the old one).
   const themed = [heat, ladder, depth, oi, delta, ls, funding, lt, bars, script, cvd, candle, liq];
-  toolbar.tapeFields = () => candle.settingsFields();
+  // A phone's Settings has the Tape tab's own rows: what it shows first (the list, or the chart), then the chart's rows, there only while the
+  // chart shows (review r15: on the list they changed nothing on screen). The sheet places the rows once this returns.
+  toolbar.tapeFields = () => {
+    const chart = candle.settingsFields();
+    const sync = (): void => { for (const [, control] of chart) { const row = control.parentElement; if (row) row.hidden = store.state.phoneTape !== 'chart'; } };
+    const shows = el('select', { ariaLabel: t('View'), onchange: () => { store.set({ phoneTape: shows.value === 'chart' ? 'chart' : 'list' }); sync(); } });
+    for (const [value, text] of [['list', t('List')], ['chart', t('Chart')]] as const) shows.append(el('option', { value, textContent: text }));
+    shows.value = store.state.phoneTape;
+    queueMicrotask(sync);
+    return [[t('View'), shows], ...chart];
+  };
   // The map and the panes under it, top down. Each pane but the map shows while its switch is on (`layout`, by `PANE_SHOW_KEY`), the Scripts
   // pane only for scripts drawn in rows.
   const strip: LayoutPane[] = [
@@ -204,7 +217,7 @@ async function main(): Promise<void> {
     { id: 'script', root: script.root, height: 220, min: 60, head: script.header, closable: false },
   ];
   const arrange = new Layout(main, chart, { left: flowCol, right: side }, strip, [
-    { id: 'cvd', root: cvd.root, head: cvd.controls, title: t('Flow'), views: [{ id: 'flow', title: t('Flow') }, { id: 'trades', title: t('Trades') }] },
+    { id: 'cvd', root: cvd.root, head: cvd.controls, title: t('Flow'), views: [{ id: 'flow', title: t('Flow') }, { id: 'trades', title: t('Tape') }] },
     { id: 'book', root: ladder.root, head: ladder.controls, title: t('Order Book') },
   ]);
   // What the person does to the layout (layouts/actions.ts): the layouts panel, a pane's close button and the edge tab of a closed side pane (the Panels row in the top bar flips the same switches).
@@ -358,7 +371,9 @@ async function main(): Promise<void> {
   hub.onPrintsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   // The trade dust: asked for while the bubbles and their Live trades switch are both on; arrivals redraw the dust alone.
   // The Candle view's trail reads the same orders, so they are asked for while it is shown whatever the bubbles' switches say.
-  const candleShown = (): boolean => dock.tab === 'candle' && isPhone();
+  // A phone's Tape tab shows the list of every order unless the chart was chosen (Karl, 2026-11-14: the new tape is the default).
+  const tapeList = (): boolean => dock.tab === 'candle' && store.state.phoneTape === 'list';
+  const candleShown = (): boolean => dock.tab === 'candle' && isPhone() && store.state.phoneTape === 'chart';
   const liqShown = (): boolean => dock.tab === 'liq' && isPhone();
   // The Flow tab fills the area as the Tape does, and the Book held upright: the map is covered under them (what the Flow draws ends now, whatever the map's window is).
   const mapCovered = (): boolean => isPhone() && fillsArea(dock.tab, axisOf(layoutMode()));
@@ -374,14 +389,19 @@ async function main(): Promise<void> {
   };
   // On a phone the Tape keeps the market's orders from the page's opening, whichever tab shows, so the ring runs there always.
   // The book's cues read the tape for the contact ripples and for what traded beside a change (the hover), so they want it whether or not the ripples are on.
-  // Trades wants the tape while it is on screen (its column shown and not folded, or a phone's Flow tab open; its view chosen).
-  const tradesShown = (): boolean => !cvd.root.hidden && !cvd.covered() && store.state.flowView === 'trades';
+  // The Tape list wants the tape while it is on screen: its column shown and not folded, in its view (a phone's Tape tab showing the list).
+  const tradesShown = (): boolean => !cvd.root.hidden && !cvd.covered() && cvd.activeView === 'trades';
   const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone() || (store.state.show.book && store.state.ladderCues.look !== 'off') || tradesShown();
   // The map is covered while a view that fills the area shows, and the book while any tab but its own does (the Tape draws its own): they draw nothing then, and catch up when they show again.
   const coverPanes = (): void => { const covered = mapCovered(); heat.setSuspended(covered); hub.mapCovered = covered; ladder.setSuspended(isPhone() && dock.tab !== 'book'); };
-  // A phone shows one tab at a time: the flow column's lists show only on the Flow tab (they draw nothing and ask nothing behind another).
-  cvd.covered = () => isPhone() && dock.tab !== 'flow';
-  dock.onChange = () => { candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); cvd.viewChanged(); hub.setTape(tapeWanted()); };
+  // A phone shows one tab at a time: the flow column shows only on the Flow tab (its lines) and the Tape tab (its list), and draws nothing and
+  // asks nothing behind another. Its view is the tab's, never the saved one.
+  cvd.covered = () => isPhone() && !(dock.tab === 'flow' || tapeList());
+  cvd.phoneView = () => isPhone() ? (dock.tab === 'candle' ? 'trades' : 'flow') : null;
+  // The stylesheet shows the Tape tab's list or chart by `main[data-tape]`; the top bar's switch shows on that tab alone.
+  const syncTapeTab = (): void => { main.dataset.tape = store.state.phoneTape; toolbar.setTapeView(isPhone() && dock.tab === 'candle' ? store.state.phoneTape : null); };
+  dock.onChange = () => { candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); cvd.viewChanged(); hub.setTape(tapeWanted()); syncTapeTab(); };
+  syncTapeTab();
   hub.setTape(tapeWanted());
   hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); glass.tapeArrived(); ladder.tapeArrived(); cvd.trades.tapeArrived(); };
   // The column shown or hidden, folded or its view changed: the tape is wanted again or not, and a list that now shows reads the ring.
@@ -529,7 +549,7 @@ async function main(): Promise<void> {
   });
 
   // The profile column and axis are narrower on a phone; everything that aligns to them has to redraw when that changes.
-  onLayoutMode(() => { layout(); heat.invalidate(); lower(); drawBar.sync(); toolbar.sync(store.state, heat.window); candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); hub.setTape(tapeWanted()); });
+  onLayoutMode(() => { layout(); heat.invalidate(); lower(); drawBar.sync(); toolbar.sync(store.state, heat.window); candle.setShown(candleShown()); liq.setShown(liqShown()); coverPanes(); hub.setTape(tapeWanted()); syncTapeTab(); });
   // The columns beside the map: what the corner buttons and the replay bar keep clear of (the map's own pane sets them each frame too).
   const gutters = () => {
     const s = store.state;
@@ -543,7 +563,8 @@ async function main(): Promise<void> {
     for (const p of strip) { const key = PANE_SHOW_KEY[p.id]; if (key && p.id !== 'script') p.root.hidden = !s.show[key]; }
     script.root.hidden = !scriptRows(s);
     // The two side panels vanish and return at once: nothing is rebuilt, a hidden column is simply not laid out (a closed one leaves an edge tab).
-    arrange.sides({ cvd: s.show.cvd, book: s.show.book });
+    // A phone's Tape tab shows the column's list with the column switched off too (its Flow tab goes with the switch): there it stays in the page.
+    arrange.sides({ cvd: s.show.cvd || isPhone(), book: s.show.book });
     arrange.rebuild();
     if (s.show.cvd) cvd.invalidate(); if (s.show.book) ladder.invalidate();
     // The Scripts tab, like its pane, is there only for scripts drawn in rows: those on the map need neither.
@@ -564,6 +585,7 @@ async function main(): Promise<void> {
     if (changed.has('waveStrength')) { glass.setStrength(state.waveStrength); candle.invalidate(); }
     if (changed.has('cvd')) cvd.settingsChanged();
     if (changed.has('flowView')) cvd.viewChanged();
+    if (changed.has('phoneTape')) { candle.setShown(candleShown()); cvd.viewChanged(); hub.setTape(tapeWanted()); syncTapeTab(); }
     // A venue switched on or off filters the list as its own settings do: drawn again from the top.
     // Trades' own settings and the venues make its rows again; the whale size, a replay and the clock only redraw them.
     if (changed.has('trades') || changed.has('disabledVenues')) cvd.trades.refresh();
