@@ -82,8 +82,8 @@ async function serverAnswers(): Promise<boolean> {
     return response.ok && (response.headers.get('content-type') ?? '').includes('json');
   } catch { return false; }
 }
-/** A host that only serves files (GitHub Pages): no server answers there, so it is not asked (a round trip of every start, ~0.2 s). */
-const fileHost = (): boolean => location.hostname.endsWith('.github.io');
+/** A host that only serves files (GitHub Pages, Cloudflare Pages): no server answers there, so it is not asked (a round trip of every start, ~0.2 s). */
+const fileHost = (): boolean => /(?:\.github\.io|\.pages\.dev|(?:^|\.)liquiditymapper\.com)$/.test(location.hostname);
 
 /**
  * Where the data comes from. A static host (GitHub Pages, any file server) has no server behind it, so the page reads the exchanges
@@ -145,6 +145,7 @@ async function main(): Promise<void> {
   window.setInterval(showStatus, 1000);
 
   const heat = new HeatPane(chart, store, hub, kernels);
+  statusbar.setAccelerated(heat.gl.kind === 'webgl2');
   toolbar.placeRecenter(heat.root);
   // The tour's moving picture of the right-button drag moves this chart (tour/demo.ts), and puts its view back when its step is left.
   setTourDemo({ plotRect: () => heat.plotRect(), zoom: (press, at) => heat.demoZoom(press, at), end: () => heat.endDemo() });
