@@ -120,11 +120,12 @@ if (colorCandles) $price.color = shade(average)
 /**
  * The cumulative delta of the spot markets and of the perpetuals, apart, with a label at each line's newest value: how far it moved over the
  * lookback and whether that move was straight enough to call rising or falling (a user's script, 2026-11-11, from the example of this name;
- * `renderer.last` keeps its labels when the newest candle has closed, `$` and a Labels switch added).
+ * `renderer.last` keeps its labels when the newest candle has closed, `$` and a Labels switch added). Its labels are tags at the right edge
+ * since 2026-11-18 (Karl: plates at the lines' ends covered each other where the lines crossed).
  */
 export const CVD_SOURCE = `// Spot and perpetual CVD: the cumulative delta (what was bought at market less what was sold) of the spot markets and of
-// the perpetuals, apart, each on a scale of its own. A label at each line's newest value says which it is, how far it has
-// moved over the last candles (the lookback) and where it is heading: rising, falling or flat.
+// the perpetuals, apart, each on a scale of its own. A tag at the right edge, at each line's newest value and in its colour,
+// says which it is, how far it has moved over the last candles (the lookback) and where it is heading: rising, falling or flat.
 spotColor = option(type=color, default=#2e9bff, label=Spot)
 perpColor = option(type=color, default=#ff9f1c, label=Perpetual)
 trendLength = option(type=number, default=20, min=2, max=500, step=1, label="Lookback (candles)")
@@ -165,21 +166,148 @@ function tipOf(name, cvd, move, path, word) {
 line(spotCvd, title=Spot, color=spotColor)
 line(perpCvd, title=Perp, color=perpColor, priceScaleId=perp)
 
-// The labels stand on the newest candle only (renderer.last), under way or closed: a value that is not a number draws none.
+// The labels are tags (shape=tag): each stands at the right edge at its line's newest value, and tags that would cover each
+// other are moved apart, in the lines' order, with a short leader to the value. They are given on the newest candle only
+// (renderer.last), under way or closed: a value that is not a number draws none.
 var newest = showLabels && renderer.last
 var spotWord = trendOf(spotMove, spotPath), perpWord = trendOf(perpMove, perpPath)
-mark({value: newest ? spotCvd : NaN, text: "Spot " + money(spotMove) + " " + arrowOf(spotWord) + " " + spotWord, tip: tipOf("Spot", spotCvd, spotMove, spotPath, spotWord), color: spotColor}, title="Spot label", shape=label, position=above)
-mark({value: newest ? perpCvd : NaN, text: "Perp " + money(perpMove) + " " + arrowOf(perpWord) + " " + perpWord, tip: tipOf("Perp", perpCvd, perpMove, perpPath, perpWord), color: perpColor}, title="Perp label", shape=label, position=below, priceScaleId=perp)
+mark({value: newest ? spotCvd : NaN, text: "Spot " + money(spotMove) + " " + arrowOf(spotWord) + " " + spotWord, tip: tipOf("Spot", spotCvd, spotMove, spotPath, spotWord), color: spotColor}, title="Spot label", shape=tag)
+mark({value: newest ? perpCvd : NaN, text: "Perp " + money(perpMove) + " " + arrowOf(perpWord) + " " + perpWord, tip: tipOf("Perp", perpCvd, perpMove, perpPath, perpWord), color: perpColor}, title="Perp label", shape=tag, priceScaleId=perp)
+`;
+
+/**
+ * Strong and weak highs and lows: each swing high and low as a level from its own candle, named strong once the move away from it broke the
+ * swing it came from (market structure as its traders read it), ended where price comes back to it. A user's design (2026-11-17), which asked
+ * the page to draw the levels itself; rewritten on `level`, so it runs, and anyone can read and change how a level is judged.
+ */
+export const SWING_SOURCE = `// Strong and weak highs and lows: the price's swing highs and lows as levels, read as traders of market structure read them.
+// A swing high (low) is a candle whose high (low) is beyond those of the Swing candles each side of it, so it is known that
+// many candles late, and its level is then drawn from the swing candle itself.
+//   strong low    the rise away from it went on to break the high it fell from: buyers took over there
+//   weak low      the rise from it has not broken that high: the low price is expected to come back for
+//   strong high   the fall away from it went on to break the low it rose from
+//   weak high     the fall from it has not broken that low
+// A weak level turns strong once that break comes. A level is untested until price trades at it again, and runs on to the
+// right edge with its name; a tested one ends at the candle that tested it, with a cross, where Tested levels shows them.
+// A map of structure, not a forecast.
+swing = option(type=number, default=5, min=2, max=50, step=1, label="Swing (candles each side)")
+breakBy = option(type=list, default="Close", options=["Close", "Wick"], label="A break counts by the")
+tested = option(type=list, default="Hidden", options=["Hidden", "Faint", "Full"], label="Tested levels")
+most = option(type=number, default=24, min=1, max=100, step=1, label="Most untested levels")
+// Each kind of level: its colour, its line's width and its line's style.
+strongHighColor = option(type=color, default="#e5484d", label="Strong high")
+strongHighWidth = option(type=list, default=2, options=[1, 1.5, 2, 3, 4], label="Strong high: line width")
+strongHighStyle = option(type=list, default="Solid", options=["Solid", "Dashed", "Dotted"], label="Strong high: line style")
+weakHighColor = option(type=color, default="rgba(229,72,77,0.65)", label="Weak high")
+weakHighWidth = option(type=list, default=1, options=[1, 1.5, 2, 3, 4], label="Weak high: line width")
+weakHighStyle = option(type=list, default="Dashed", options=["Solid", "Dashed", "Dotted"], label="Weak high: line style")
+strongLowColor = option(type=color, default="#00b386", label="Strong low")
+strongLowWidth = option(type=list, default=2, options=[1, 1.5, 2, 3, 4], label="Strong low: line width")
+strongLowStyle = option(type=list, default="Solid", options=["Solid", "Dashed", "Dotted"], label="Strong low: line style")
+weakLowColor = option(type=color, default="rgba(0,179,134,0.65)", label="Weak low")
+weakLowWidth = option(type=list, default=1, options=[1, 1.5, 2, 3, 4], label="Weak low: line width")
+weakLowStyle = option(type=list, default="Dashed", options=["Solid", "Dashed", "Dotted"], label="Weak low: line style")
+// The names at the right edge: full (Strong high), short (SH) or none; with the price or without; each on a plate of its
+// line's colour, or all on plates of one colour.
+names = option(type=list, default="Full", options=["Full", "Short", "None"], label="Names")
+prices = option(type=checkbox, default=true, label="Price beside the name")
+nameColors = option(type=list, default="As the line", options=["As the line", "One colour"], label="Names coloured")
+nameColor = option(type=color, default="#e6e1cf", label="Names: the one colour")
+
+function dashes(style) { return style == "Dashed" ? 2 : style == "Dotted" ? 1 : 0 }
+// A price as a name shows it: thousands grouped, decimals by its size.
+function priceText(p) {
+  var s = p.toFixed(p >= 1000 ? 0 : p >= 100 ? 1 : p >= 1 ? 2 : p >= 0.01 ? 4 : 6)
+  var dot = s.indexOf("."), whole = dot < 0 ? s : s.slice(0, dot), out = ""
+  for (var k = 0; k < whole.length; k++) { if (k > 0 && (whole.length - k) % 3 == 0) out += ","; out += whole.slice(k, k + 1) }
+  return dot < 0 ? out : out + s.slice(dot)
+}
+function nameOf(lv) {
+  if (names == "None") return ""
+  var name = names == "Short" ? (lv.strong ? "S" : "W") + (lv.high ? "H" : "L") : (lv.strong ? "Strong " : "Weak ") + (lv.high ? "high" : "low")
+  return prices ? name + " " + priceText(lv.price) : name
+}
+var plate = nameColors == "One colour" ? nameColor : ""
+// A tested level ends with a cross where Tested levels shows them.
+var cross = tested == "Hidden" ? "none" : "cross"
+// A level's colour: its kind's, faded into the background once tested where Tested levels is Faint.
+function colorOf(lv) {
+  var c = lv.high ? (lv.strong ? strongHighColor : weakHighColor) : (lv.strong ? strongLowColor : weakLowColor)
+  return !na(lv.testedAt) && tested == "Faint" ? interpolate(0.6, c, theme.background) : c
+}
+// Draws a level in its kind's plot (a value of NaN takes it away): a call each, so each kind keeps its own line. A tested level
+// ends at the candle that tested it, without a name.
+function put(lv, value) {
+  var point = { value: value, from: lv.start, to: lv.testedAt, text: na(lv.testedAt) ? nameOf(lv) : "", color: colorOf(lv) }
+  if (lv.high && lv.strong) level(point, title="Strong highs", color=strongHighColor, lineWidth=Number(strongHighWidth), lineStyle=dashes(strongHighStyle), textColor=plate, endShape=cross)
+  else if (lv.high) level(point, title="Weak highs", color=weakHighColor, lineWidth=Number(weakHighWidth), lineStyle=dashes(weakHighStyle), textColor=plate, endShape=cross)
+  else if (lv.strong) level(point, title="Strong lows", color=strongLowColor, lineWidth=Number(strongLowWidth), lineStyle=dashes(strongLowStyle), textColor=plate, endShape=cross)
+  else level(point, title="Weak lows", color=weakLowColor, lineWidth=Number(weakLowWidth), lineStyle=dashes(weakLowStyle), textColor=plate, endShape=cross)
+}
+function draw(lv) { put(lv, lv.price) }
+function erase(lv) { put(lv, NaN) }
+// What the levels drawn can still meet, so a candle that meets none of it skips them: the lowest high and the highest low not yet
+// tested, and the prices whose break would make a weak one strong.
+function reach() {
+  nearHigh = Infinity; nearLow = -Infinity; breakUp = Infinity; breakDown = -Infinity
+  for (var k = 0; k < levels.length; k++) {
+    var lv = levels[k]
+    if (lv.high) { nearHigh = Math.min(nearHigh, lv.price); if (!lv.strong && !na(lv.from)) breakDown = Math.max(breakDown, lv.from) }
+    else { nearLow = Math.max(nearLow, lv.price); if (!lv.strong && !na(lv.from)) breakUp = Math.min(breakUp, lv.from) }
+  }
+}
+
+// The swing size as a whole number of candles, and the candle's start, kept so the swing candle's can be read back.
+var span = Math.max(2, Math.min(50, Math.round(nz(swing, 5))))
+starts = time
+var h = $price.high, l = $price.low, closed = !renderer.forming
+// What a break is measured by. A break by the close waits for the candle to close; one by the wick counts as soon as it trades.
+var up = breakBy == "Wick" ? h : $price.close, down = breakBy == "Wick" ? l : $price.close, breaks = breakBy == "Wick" || closed
+// How far the price went beyond, either way, over the candles since the swing candle (a break may come before the swing is known).
+var rose = highest(up, span), fell = lowest(down, span)
+var ph = pivot_high(h, span, span), pl = pivot_low(l, span, span)
+
+if (renderer.length == 1) { levels = []; lastHigh = NaN; lastLow = NaN; reach() }
+// The levels already drawn: a break of the swing they came from makes a weak one strong, and a trade at its price tests it.
+if (h >= nearHigh || l <= nearLow || (breaks && (up > breakUp || down < breakDown))) {
+  for (var k = levels.length - 1; k >= 0; k--) {
+    var lv = levels[k], was = lv.strong
+    if (!lv.strong && breaks && (lv.high ? down < lv.from : up > lv.from)) lv.strong = true
+    if (lv.high ? h >= lv.price : l <= lv.price) {
+      if (was != lv.strong) { lv.strong = was; erase(lv); lv.strong = true }
+      lv.testedAt = time
+      if (tested == "Hidden") erase(lv); else draw(lv)
+      levels.splice(k, 1)
+    } else if (was != lv.strong) { lv.strong = was; erase(lv); lv.strong = true; draw(lv) }
+  }
+  reach()
+}
+// A new swing, once the candle that shows it has closed: its level from the swing candle, strong if the price has already broken
+// the swing it came from. A low came from the last swing high before it (and a high from the last low), never from the same candle's.
+if (closed && (!na(ph) || !na(pl))) {
+  var priorHigh = lastHigh, priorLow = lastLow
+  if (!na(ph)) {
+    var hl = { high: true, price: ph, start: starts[span], from: priorLow, strong: fell < priorLow, testedAt: NaN }
+    levels.push(hl); draw(hl); lastHigh = ph
+  }
+  if (!na(pl)) {
+    var ll = { high: false, price: pl, start: starts[span], from: priorHigh, strong: rose > priorHigh, testedAt: NaN }
+    levels.push(ll); draw(ll); lastLow = pl
+  }
+  // The oldest untested levels go first past the most drawn.
+  while (levels.length > most) { erase(levels[0]); levels.splice(0, 1) }
+  reach()
+}
 `;
 
 /** The ids of the scripts a page starts with. */
-export const STARTER_ID = 'vwap-with-bands', HEATMAP_ID = 'stochastic-heat-map', CVD_ID = 'spot-and-perpetual-cvd';
+export const STARTER_ID = 'vwap-with-bands', HEATMAP_ID = 'stochastic-heat-map', CVD_ID = 'spot-and-perpetual-cvd', SWING_ID = 'strong-and-weak-highs-and-lows';
 
 /**
  * The scripts a page starts with before it has kept any: the rolling VWAP with its bands on the map, on (Karl, 2026-10-28: shown to every
  * visitor), and the stochastic heat map in a row under the map, off until switched on (it was on from 2026-10-27; a row under the map takes
- * height from it), and the spot and perpetual CVD with its labels in a row, off (a user's, 2026-11-11), so the Scripts panel opens on three to
- * read, change and learn from.
+ * height from it), and the spot and perpetual CVD with its tags in a row, off (a user's, 2026-11-11), and the strong and weak highs and lows
+ * on the map, off (a user's, 2026-11-17), so the Scripts panel opens on four to read, change and learn from.
  * Deleting one keeps the list as it is left; its example brings it back. A browser that already kept a list keeps it as it is, but for an
  * untouched heat map of an earlier version (`updateStarters`).
  */
@@ -188,6 +316,7 @@ export function starterScripts(): ScriptRecord[] {
     { id: STARTER_ID, name: t('VWAP with bands'), source: VWAP_SOURCE, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: 'map' },
     { id: HEATMAP_ID, name: t('Stochastic heat map'), source: HEATMAP_SOURCE, options: {}, on: false, api: SCRIPT_API, height: 160, place: 'pane' },
     { id: CVD_ID, name: t('Spot and perpetual CVD'), source: CVD_SOURCE, options: {}, on: false, api: SCRIPT_API, height: ROW_DEFAULT, place: 'pane' },
+    { id: SWING_ID, name: t('Strong and weak highs and lows'), source: SWING_SOURCE, options: {}, on: false, api: SCRIPT_API, height: ROW_DEFAULT, place: 'map' },
   ];
 }
 
@@ -206,7 +335,8 @@ export function updateStarters(list: ScriptRecord[]): ScriptRecord[] {
   return list.map(r => {
     // An untouched VWAP with bands, the starter or a copy added from the examples: the current text, its settings as they were.
     if (PREVIOUS_VWAP_SOURCES.includes(r.source.replace(/\r\n?/g, '\n'))) return { ...r, source: VWAP_SOURCE, api: Math.max(r.api, SCRIPT_API) };
-    // An untouched spot and perpetual CVD from before its labels: the labelled one, its colours kept (its "?" describes the labels by its id).
+    // An untouched spot and perpetual CVD from before its tags (without labels, or with labels at the lines' ends): the current one, its
+    // colours and switches kept (its "?" describes the labels by its id).
     if (PREVIOUS_CVD_SOURCES.includes(r.source.replace(/\r\n?/g, '\n'))) return { ...r, source: CVD_SOURCE, api: Math.max(r.api, SCRIPT_API) };
     if (r.id !== HEATMAP_ID || !PREVIOUS_HEATMAP_SOURCES.includes(r.source.replace(/\r\n?/g, '\n'))) return r;
     const old = Object.keys(r.options).filter(k => Object.prototype.hasOwnProperty.call(OLD_HEATMAP_OPTIONS, k));

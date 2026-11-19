@@ -11,9 +11,10 @@ const packsDir = path.join(appRoot, 'i18n');
 /**
  * Files that carry the page's words: everything but the guide's long text, the language machinery, workers and brand tables, and the scripts'
  * language (`script/lang/`: its words are the language's own, `Math` or `Invalid Date`, which scripts read as code; what a person reads of it
- * goes through `script/messages.ts`), and the tools offered to agents in the browser (`agent/`: English for agents, like the published reference).
+ * goes through `script/messages.ts`), the tools offered to agents in the browser (`agent/`: English for agents, like the published reference),
+ * and the frame-rate panel's report for an AI assistant (`fps/report.ts`, English for the same reason).
  */
-const SKIPPED = /^(format\.ts|guide\/|venues\.ts|i18n|boot\.ts|worker\/|wire\.ts|watermark\.ts|theme\.ts$|browser\/feeds|script\/lang\/|agent\/)/;
+const SKIPPED = /^(format\.ts|guide\/|venues\.ts|i18n|boot\.ts|worker\/|wire\.ts|watermark\.ts|theme\.ts$|browser\/feeds|script\/lang\/|agent\/|fps\/report\.ts)/;
 
 /** Every English text the page asks to have translated (the calls to t() and tn() in the source, the guide's own chrome included). */
 const keysInPage = (): Set<string> => new Set(keysInSource().keys());
@@ -80,7 +81,7 @@ test('a count that changes the wording has the forms its language needs', () => 
 /** ---- text the page shows that is not going through t() ---------------------------------------------------------------------------- */
 
 const proseLike = (s: string): boolean => /[A-Za-z]{2}/.test(s) && (/\s/.test(s.trim()) ? /[a-z]{2}/i.test(s) : /^[A-Z][a-z]{2,}/.test(s));
-const EXCLUDE = new Set(['chip blocked faulty', 'chip blocked', 'muted blocked', 'LiquidityMapperFast', 'Karl']);
+const EXCLUDE = new Set(['chip blocked faulty', 'chip blocked', 'muted blocked', 'LiquidityMapperFast', 'Karl', 'Plus']);
 // A KeyboardEvent.code (BracketLeft, Digit1, KeyF) is the name of a place on the keyboard: the shortcuts table matches by it, and no one reads it.
 const KEY_CODE = /^(Bracket|Digit|Key|Numpad|Arrow|Shift|Control|Alt|Meta)([A-Z]|d)/;
 const notText = (s: string): boolean => EXCLUDE.has(s) || KEY_CODE.test(s) && !/s/.test(s) || /[<>{}]|;[^ ]|^[^ ]*;|=>|^[.#[]|https?:|\.(png|svg|css|json|ts)$|^\d+(\.\d+)?px |monospace|sans-serif|^[a-z]+(-[a-z0-9]+)+( [a-z0-9-]+)*$|^[a-z]+ [a-z]$|^(M|L|C|A|Z)[\d\s.,-]/.test(s) || /^[a-z]+(-[a-z]+)* (current|on|off|v|h|in|open|plain)$/.test(s);

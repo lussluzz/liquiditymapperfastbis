@@ -11,6 +11,8 @@
   --mark-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6.5'/%3E%3C/svg%3E");
   /* A list's arrow, as heavy as the settings key's sliders (the same stroke in the same box), so the two read as one column of marks. */
   --mark-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.5 9l6.5 6.5L18.5 9'/%3E%3C/svg%3E");
+  /* A padlock: a Plus choice this browser cannot make yet. */
+  --mark-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='9' rx='1.5'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E");
   /* The phone bar's light-or-dark key: the sun where a tap brings the light theme, the moon where it brings the dark one. */
   --mark-sun: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='4.2'/%3E%3Cpath d='M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M5.35 5.35l1.6 1.6M17.05 17.05l1.6 1.6M5.35 18.65l1.6-1.6M17.05 6.95l1.6-1.6'/%3E%3C/svg%3E");
   --mark-moon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linejoin='round'%3E%3Cpath d='M19.8 14.6A8 8 0 1 1 9.4 4.2a6.6 6.6 0 0 0 10.4 10.4z'/%3E%3C/svg%3E");
@@ -103,7 +105,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .toolbar.cockpit .deck-tools .deck-row > button { width: 100%; min-width: 0; justify-content: center; text-align: center; }
 .toolbar.cockpit .deck-tools .deck-row > button.install { position: relative; font-size: 0; padding: 0; }
 .toolbar.cockpit .deck-tools .deck-row > button.install::before { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5v11M7.5 10L12 14.5 16.5 10M4.5 15.5v4h15v-4'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5v11M7.5 10L12 14.5 16.5 10M4.5 15.5v4h15v-4'/%3E%3C/svg%3E") center / contain no-repeat; }
-.toolbar.cockpit .deck-tools .deck-row:has(> button.install[hidden]) > :first-child:not(.tour-btn) { grid-column: 1 / 3; }
+.toolbar.cockpit .deck-tools .deck-row:has(> button.install[hidden]) > :first-child:not(.plus-btn) { grid-column: 1 / 3; }
 /* A monospaced face is wider: the text-mode bar a size smaller, so its decks fit as the others do. */
 html[data-frame="textmode"] .toolbar.cockpit { font-size: 10.5px; }
 html[data-frame="textmode"] .toolbar.cockpit :is(button, select) { padding: 2px 4px; }
@@ -164,9 +166,18 @@ html[data-layout="desktop"] .statusbar { display: flex; }
 .statusbar .status-item.status-mark, .statusbar .status-item.status-conn, .statusbar .status-controls { flex: none; }
 .statusbar .status-conn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ask); margin-right: 6px; }
 .statusbar .status-conn[data-state="live"]::before { background: var(--bid); }
-/* No WebGL2 (statusbar.ts): a dot alone, in the warning colour, with room around it to point at; its tip says how to turn acceleration on. */
-.statusbar .status-gpu { flex: none; display: inline-flex; align-items: center; align-self: stretch; padding: 0 5px; cursor: help; }
-.statusbar .status-gpu::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+/* The frame-rate meter (fps/meter.ts): an LED window first in the bar, drawn on its own canvas, the same in every theme (a piece of
+   hardware set into the bar); a press opens its panel. Its size never changes, so nothing around it moves. */
+.statusbar .fps-meter { flex: none; display: block; width: 106px; height: 20px; margin-left: -6px; cursor: pointer; contain: strict; border-radius: 2px; }
+.statusbar .fps-meter canvas { display: block; width: 106px; height: 20px; }
+.statusbar .fps-meter:focus-visible { outline: 2px solid var(--ui); outline-offset: 2px; }
+/* Its panel: the rate in the tone the window shows, the late frames and the graphics under it, then what helps. */
+.panel .fps-rate { margin: 0 0 4px; font-weight: 650; }
+.panel .fps-rate[data-tone="amber"] { color: var(--caution, var(--warn)); }
+.panel .fps-rate[data-tone="red"] { color: var(--warn); }
+.panel .fps-late, .panel .fps-gpu { margin: 0 0 4px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.panel .fps-helps { margin: 10px 0 12px; padding-left: 18px; }
+.panel .fps-helps li { margin: 0 0 6px; line-height: 1.4; }
 .statusbar .status-venues[data-state="some"], .statusbar .status-mark[data-state="stale"] { color: var(--warn); }
 .statusbar .status-venues[data-state="none"] { color: var(--warn); font-weight: 600; }
 .statusbar .status-save[data-state="off"], .statusbar .status-save[data-state="failed"] { color: var(--warn); }
@@ -275,14 +286,20 @@ html[data-layout="desktop"] .side-head > .pane-tools { position: static; flex: n
 /* The break after the first line (zero high, so the two gaps around it set the first line off from the controls): what the first line does not take starts the next one. */
 html[data-layout="desktop"] .side-head > .side-break { display: block; order: 3; flex: 1 0 100%; height: 0; }
 html[data-layout="desktop"] .side-head > :not(.grip, strong, button.help, .pane-tools, .side-break) { order: 4; }
-html[data-layout] .pane-head :is(.pane-x, .pane-more, .pane-range) { position: relative; width: 20px; height: 20px; min-height: 0; padding: 0; font-size: 0; line-height: 0; color: var(--muted); }
+html[data-layout] .pane-head :is(.pane-x, .pane-more, .pane-range, .pane-max) { position: relative; width: 20px; height: 20px; min-height: 0; padding: 0; font-size: 0; line-height: 0; color: var(--muted); }
 html[data-layout] .pane-head .pane-x { --cross: 9px; }
-html[data-layout] .pane-head :is(.pane-x, .pane-more, .pane-range):hover { color: var(--text); }
+html[data-layout] .pane-head :is(.pane-x, .pane-more, .pane-range, .pane-max):hover { color: var(--text); }
 /* A pane's Range button (range/tool.ts paneButton) before its menu: the dashed box the map's Select wears; lit in the accent while armed from it or showing its summary. */
 html[data-layout="desktop"] .pane-head.has-tools:has(> .pane-tools > .pane-range) { padding-right: 76px; }
+html[data-layout="desktop"] .pane-head.has-tools:has(> .pane-tools > .pane-max) { padding-right: 76px; }
+html[data-layout="desktop"] .pane-head.has-tools:has(> .pane-tools > .pane-range):has(> .pane-tools > .pane-max) { padding-right: 98px; }
 .pane-range::before { content: ""; position: absolute; inset: 0; margin: auto; width: 14px; height: 14px; background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-dasharray='4 3'%3E%3Crect x='3' y='5' width='18' height='14'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-dasharray='4 3'%3E%3Crect x='3' y='5' width='18' height='14'/%3E%3C/svg%3E") center / contain no-repeat; }
+/* A pane's maximize button (layout.ts #mover): four corners going out; while the pane is maximized, coming in, lit as the Range button is. */
+.pane-max::before { content: ""; position: absolute; inset: 0; margin: auto; width: 13px; height: 13px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'/%3E%3C/svg%3E") center / contain no-repeat; }
+.pane-max[data-state="on"]::before { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'/%3E%3C/svg%3E"); }
+html[data-layout] .pane-head .pane-max[data-state="on"],
 html[data-layout] .pane-head .pane-range[data-state="on"] { color: var(--ui); background: color-mix(in srgb, var(--ui) 16%, transparent); box-shadow: inset 0 0 0 1px var(--ui); }
 .pane-more::before { content: ""; position: absolute; inset: 0; margin: auto; width: 14px; height: 14px; background: currentColor; -webkit-mask: var(--mark-more) center / contain no-repeat; mask: var(--mark-more) center / contain no-repeat; }
 /* A pane being dragged by its grip: a label with the pointer, a mark where it would stand (a bar between two panes, or the strip along an edge where a column is not there), and the pane itself dimmed. */
@@ -332,9 +349,12 @@ html[data-bar="compact"] .toast { bottom: 76px; }
   main { --rail-w: 30px; }
   html[data-layout="desktop"] .pane-head.has-tools { padding-right: 76px; }
   html[data-layout="desktop"] .pane-head.has-tools:has(> .pane-tools > .pane-range) { padding-right: 108px; }
-  html[data-layout] .pane-head :is(.pane-x, .pane-more, .pane-range) { width: 30px; height: 30px; }
+  html[data-layout="desktop"] .pane-head.has-tools:has(> .pane-tools > .pane-max) { padding-right: 108px; }
+  html[data-layout="desktop"] .pane-head.has-tools:has(> .pane-tools > .pane-range):has(> .pane-tools > .pane-max) { padding-right: 140px; }
+  html[data-layout] .pane-head :is(.pane-x, .pane-more, .pane-range, .pane-max) { width: 30px; height: 30px; }
   html[data-layout] .pane-head .pane-x { --cross: 12px; }
   :is(.pane-more, .pane-range)::before { width: 18px; height: 18px; }
+  .pane-max::before { width: 16px; height: 16px; }
   .edge-tab { font-size: 12px; }
 }
 .pane { position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
@@ -349,7 +369,7 @@ html[data-bar="compact"] .toast { bottom: 76px; }
 .pane.heat canvas.hover { pointer-events: none; }
 /* Select and Recenter act on the map, so they sit in the map's top-right corner, left of the profile column. */
 .pane.heat .map-tools { position: absolute; z-index: 3; top: 8px; right: calc(var(--gutter, 192px) + 8px); display: flex; gap: 6px; }
-.pane.heat .map-recenter, .pane.heat .map-select, .pane.heat .map-goto, .pane.heat .map-draw, .pane.heat .map-layout { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px 0 7px; border-radius: var(--radius);
+.pane.heat .map-recenter, .pane.heat .map-select, .pane.heat .map-goto, .pane.heat .map-draw, .pane.heat .map-layout, .pane.heat .map-max { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px 0 7px; border-radius: var(--radius);
   background: color-mix(in srgb, var(--panel) 86%, transparent); font-size: 11px; color: var(--text); box-shadow: 3px 3px 0 var(--shadow); }
 /* Select wears the Range lamp on its left, then a dashed box: the selection it makes. */
 .pane.heat .map-select { padding-left: 21px; }
@@ -371,7 +391,23 @@ html[data-bar="compact"] .toast { bottom: 76px; }
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 6l6 6-6 6M13 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat; }
 .pane.heat .map-live[hidden] { display: none; }
 .pane.heat .map-live:hover,
-.pane.heat .map-recenter:hover, .pane.heat .map-select:hover, .pane.heat .map-goto:hover, .pane.heat .map-draw:hover, .pane.heat .map-layout:hover { background: var(--panel); }
+.pane.heat .map-recenter:hover, .pane.heat .map-select:hover, .pane.heat .map-goto:hover, .pane.heat .map-draw:hover, .pane.heat .map-layout:hover, .pane.heat .map-max:hover { background: var(--panel); }
+/* The map's maximize button (main.ts, the corner's last): a drawing only, there while a pane under the map is open or the map is maximized. */
+.pane.heat .map-max { justify-content: center; width: 28px; padding: 0; }
+.pane.heat .map-max[hidden] { display: none; }
+.pane.heat .map-max::before { content: ""; width: 13px; height: 13px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'/%3E%3C/svg%3E") center / contain no-repeat; }
+.pane.heat .map-max[data-state="on"]::before { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'/%3E%3C/svg%3E"); }
+.pane.heat .map-max[data-state="on"] { color: var(--ui); box-shadow: inset 0 0 0 1px var(--ui), 3px 3px 0 var(--shadow); }
+/* A maximized pane (layout.ts #setMax) stands over the whole map's column; the others stay laid out under it, unseen, so that the map goes on drawing.
+   A pane under the map leaves the map's time axis in sight below it: the map, at the height it had, stands at the column's bottom. Desktop only. */
+html[data-layout="desktop"] .chart-col.has-max { position: relative; overflow: hidden; }
+html[data-layout="desktop"] .chart-col.has-max > :not(.maxed, .pane.heat) { visibility: hidden; }
+/* The splitters go altogether: hidden from sight they kept their boxes, which Glass measured as walls over the maximized chart (review r4). */
+html[data-layout="desktop"] .chart-col.has-max > .splitter { display: none; }
+html[data-layout="desktop"] .chart-col.has-max > .pane.maxed { position: absolute; inset: 0; z-index: 20; min-height: 0; }
+html[data-layout="desktop"] .chart-col.max-lower > .pane.heat { position: absolute; left: 0; right: 0; bottom: 0; height: var(--max-map-h); min-height: 0; z-index: 0; }
+html[data-layout="desktop"] .chart-col.max-lower > .pane.maxed { bottom: var(--max-axis-h, 22px); }
 /* Where the named buttons over the top right of the map would hide its title and the figures beside it, they shrink to their drawings: judged on the
    plot's own width (heat-pane.ts `#fitCorner`), not the window's, since the columns beside the map take as much as the window gives. */
 html[data-layout="desktop"] .pane.heat .map-tools.compact :is(.map-goto, .map-select, .map-recenter, .map-draw, .map-layout) { font-size: 0; gap: 0; padding: 0 7px; }
@@ -498,6 +534,9 @@ html[data-layout="desktop"] .pane.cvd .pane-head > .fit-cells > .cvd-seg button,
 .pane-head .readout b { color: var(--text); }
 .pane-head .readout b.bid { color: var(--bid); }
 .pane-head .readout b.ask { color: var(--ask); }
+/* A line's key before its name in a readout (the Funding pane): a short stroke in the colour set on it. */
+.pane-head .readout .key { display: inline-block; width: 12px; height: 0; border-top: 2px solid currentColor; vertical-align: middle; margin-right: 4px; }
+.pane-head .readout .key.thin { border-top-width: 1px; }
 /* A pane's header is one row on a desktop (Karl, 2026-11-13): where its figures would get less than their room beside the controls, the last
    controls fold behind the settings key, which opens them in a panel (pane-tune.ts); the Liquidity Tracker's figures took a line of their own. */
 html[data-layout="desktop"] .pane-head .folded { display: none; }
@@ -748,17 +787,49 @@ table.keys td:first-child { width: 34%; white-space: nowrap; }
 /* A field of 16 px or more is not zoomed in on by an iPhone. */
 @media (max-width: 860px), (pointer: coarse) { .guide-q { height: 36px; font-size: 16px; } .guide-q-x { top: 17px; } }
 @media (prefers-reduced-motion: reduce) { .guide-scroll { scroll-behavior: auto; } .guide-article .flash { animation: none; background: color-mix(in srgb, var(--ui) 20%, transparent); } }
-/* The tour's button, with a play mark (the invitation's Take the tour is the same). The bar's Tour wears the lit look of the bar's chosen buttons (`on`, set
-   while it is in the bar: Toolbar #arrange), in the theme's own way, not a fill of the accent that stayed the same blue in every theme (Karl, 2026-11-13); a
-   phone's Settings tile stays filled and bold, the one such tile there. */
+/* The tour's button, with a play mark (the invitation's and the Guide's Take the tour are the same). It is a tile of a phone's Settings, filled and bold,
+   the one such tile there; the full bar has none since 2026-11-17 (Plus stands in its place, and the Guide's first button takes the tour). */
 .sheet-tiles > button.tour-btn { font-weight: 700; background: var(--ui); border-color: var(--ui); color: var(--on-ui, #fff); }
 :is(button.tour-btn, button.guide-tour, .tour-invite-go) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 :is(button.tour-btn, button.guide-tour, .tour-invite-go)::before { content: ""; flex: none; width: 8px; height: 10px; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
-/* In the top bar the button has no mark: the bar is fitted to the pixel, and the mark was 14 px of width that took Russian and Japanese past the bar's smallest zoom at 1,500 px (it is lit, the one button of the bar that is lit and acts). */
-.toolbar.cockpit .deck-tools button.tour-btn::before { display: none; }
 .sheet-tiles > button.tour-btn:hover { background: color-mix(in srgb, var(--ui) 86%, var(--text)); border-color: color-mix(in srgb, var(--ui) 86%, var(--text)); }
-/* A lit button does not change under the pointer or while held, and the Tour is lit always: held, it fades a little, so that a press answers in every frame. */
-.toolbar .tour-btn.on:active:not(:disabled) { opacity: .75; }
+/* Plus (plus/): its button in the bar is lit (`on`) while this browser has Plus, and a lit button does not change under the pointer or while held: held, it
+   fades a little, so that a press answers in every frame. */
+.toolbar .plus-btn.on:active:not(:disabled) { opacity: .75; }
+/* The lock on a pane whose older history is Plus (the Depth pane's Liquidation levels), and the History link over the liquidation column: small page
+   elements over the drawing, so that they can be pressed and read like any button. */
+.pane .plus-lock, .pane.heat .liq-history { position: absolute; z-index: 4; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; font-size: 11px; white-space: nowrap; }
+.pane .plus-lock[hidden], .pane.heat .liq-history[hidden] { display: none; }
+.pane .plus-lock::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='9' rx='1.5'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='9' rx='1.5'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E") center / contain no-repeat; }
+.pane.heat .liq-history { height: 16px; padding: 0 5px; font-size: 10px; }
+/* What the liquidation column shows (liq-menu.ts): the button at the top of the column that opens its menu, a sibling of the map's corner tools
+   on their row (their height, type, ground, corners, shadow and hover; Karl, 2026-11-18: at 16 px with no ground it read as a caption), an
+   arrow at its right, a lock at its left while a Plus choice is held back; its words never run past the column (the script fits them, the rest
+   is cut). */
+.pane.heat .liq-kind { position: absolute; z-index: 4; display: block; box-sizing: border-box; height: 26px; padding: 0 22px 0 9px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel) 86%, transparent); color: var(--text); box-shadow: 3px 3px 0 var(--shadow); font-size: 11px; line-height: 24px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.pane.heat .liq-kind:hover { background: var(--panel); }
+.pane.heat .liq-kind[hidden] { display: none; }
+.pane.heat .liq-kind::after { content: ""; position: absolute; right: 8px; top: 50%; width: 9px; height: 9px; margin-top: -4.5px; background: currentColor; -webkit-mask: var(--mark-chevron) center / contain no-repeat; mask: var(--mark-chevron) center / contain no-repeat; }
+.pane.heat .liq-kind.locked { padding-left: 24px; }
+.pane.heat .liq-kind.locked::before, .plus-tag.locked::before, .menu-item .tag.locked::before { content: ""; background: currentColor; -webkit-mask: var(--mark-lock) center / contain no-repeat; mask: var(--mark-lock) center / contain no-repeat; }
+.pane.heat .liq-kind.locked::before { position: absolute; left: 8px; top: 50%; width: 11px; height: 11px; margin-top: -5.5px; }
+/* In the Bevel frame the corner tools are 23 px and cast no shadow (their bevel is the edge): the button too. */
+:root[data-frame="bevel"] .pane.heat .liq-kind { height: 23px; line-height: 21px; box-shadow: none; }
+/* The paid part's name on a choice that is part of it, small, after the choice's words; with a lock while this browser has no Plus. */
+.plus-tag, .menu-item .tag { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 0 4px; border: 1px solid color-mix(in srgb, currentColor 35%, transparent); border-radius: 3px; font-size: 9px; font-weight: 600; line-height: 12px; letter-spacing: .02em; vertical-align: 1px; opacity: .85; }
+.plus-tag.locked::before, .menu-item .tag.locked::before { flex: none; width: 8px; height: 8px; }
+/* A menu's group heading (liq-menu.ts: Show, Traders), or a word about the rows under it: not a choice, the keys pass over it. */
+.menu-heading { padding: 6px 10px 2px; font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.menu-heading + .menu-heading { padding-top: 0; font-weight: 400; letter-spacing: 0; text-transform: none; }
+/* The Liq levels panel's choices: each segment as wide as its words and tag, the row wrapping on a narrow panel. */
+.panel .seg.liq-choice { display: flex; flex-wrap: wrap; margin: 2px 0 8px; }
+.panel .seg.liq-choice button { flex: 1 1 auto; white-space: nowrap; }
+/* The Plus panel's second tile is a button where it opens the Guide: it looks like the link beside it. */
+button.author-link.plus-tile { align-items: flex-start; height: auto; background: none; text-align: left; font: inherit; cursor: pointer; }
 /* The invitation to the tour (tour/invite.ts), a notice: its text takes the room, the buttons wrap under it on a narrow screen. */
 .toolbar .tour-invite { flex-wrap: wrap; row-gap: 6px; }
 .tour-invite-text { flex: 1 1 220px; min-width: 0; }
@@ -1173,6 +1244,13 @@ html[data-frame="textmode"] .toolbar.cockpit .split > .split-cfg { width: 14px; 
 .layout-row:has(> button:not(:disabled):is(:hover, :focus-visible)) { background: color-mix(in srgb, var(--ui) 14%, transparent); }
 :where(:root[data-theme="dark"]) .layout-row:has(> button:not(:disabled):is(:hover, :focus-visible)) { background: color-mix(in srgb, var(--ui) 22%, transparent); }
 .layout-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.layout-backup { margin-top: 2px; }
+/* The Theme panel (theme-editor.ts): the name, then each colour as a swatch and its name, two to a row. */
+.theme-name { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; font-size: 12px; }
+.theme-name > input { flex: 1; min-width: 0; }
+.theme-colors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; margin: 2px 0 6px; }
+.theme-color { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 0; font-size: 12px; cursor: pointer; }
+.theme-color > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The Scripts panel (script/panel.ts): a row per script with its switch, and the text box a script is written in. */
 .script-row > .script-on { display: inline-flex; flex: none; }
 .script-row > button:nth-child(2) { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1185,6 +1263,8 @@ html[data-frame="textmode"] .toolbar.cockpit .split > .split-cfg { width: 14px; 
 .panel-body .script-about { margin: 2px 0 8px; border: 1px solid var(--line); border-radius: var(--radius); }
 /* The Scripts pane's row buttons (script-pane.ts #placeRowTools): open the script, switch it off; after the row's name, over the canvas. */
 .script-row-tool { position: absolute; z-index: 2; display: inline-flex; gap: 2px; }
+/* A row's switch-off button apart from the others, at the row's right end under the pane's close (a pane of several rows), or not shown. */
+.script-row-tool[hidden] { display: none; }
 .script-row-tool > button { position: relative; width: 18px; height: 16px; min-height: 0; padding: 0; font-size: 13px; line-height: 14px; opacity: .6; }
 .script-row-tool > button:hover, .script-row-tool > button:focus-visible { opacity: 1; }
 .script-row-open::before { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; transform: translate(-50%, -50%); background: currentColor; -webkit-mask: var(--mark-settings) center / contain no-repeat; mask: var(--mark-settings) center / contain no-repeat; }
@@ -1200,7 +1280,7 @@ html[data-layout^="phone"] .script-row-tool > button { width: 26px; height: 22px
 .pane.heat .script-legend-tools .script-row-tool { z-index: 3; }
 .script-source { display: block; box-sizing: border-box; width: 100%; min-height: 220px; margin: 6px 0; padding: 6px 8px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; resize: vertical; white-space: pre; overflow: auto; color: var(--text); background: var(--bg); border: 1px solid var(--line); }
 .script-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
-.script-option > input[type="number"], .script-option > input[type="text"] { width: 150px; font: inherit; }
+.script-option > input[type="number"], .script-option > input[type="text"], .script-option > select { width: 150px; font: inherit; }
 /* Go to (toolbar.ts openGoTo): a calendar, drawn. */
 .pane.heat .map-goto::before { content: ""; width: 13px; height: 13px; background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='5' width='18' height='16'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E") center / contain no-repeat;
