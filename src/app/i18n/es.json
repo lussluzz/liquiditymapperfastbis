@@ -3149,13 +3149,9 @@
  "Plus is being set up. This page will carry its price and the checkout when it opens.": "Plus se está preparando. Esta página mostrará su precio y la opción de pago cuando se ponga a la venta.",
  "Plus is being set up, and the checkout opens on this page soon. Prices are before tax.": "Plus se está preparando y el pago se abrirá pronto en esta página. Los precios no incluyen impuestos.",
  "{price} a month": "{price} al mes",
- "renews each month": "se renueva cada mes",
  "{price} a year": "{price} al año",
- "renews each year": "se renueva cada año",
  "Renew Plus": "Renovar Plus",
  "Get Plus": "Obtener Plus",
- "Prices are before tax; the checkout shows the total in your currency. You can end Plus at any time, and it then runs to the end of the period paid for.": "Los precios no incluyen impuestos; al pagar verás el total en tu moneda. Puedes cancelar Plus cuando quieras, y entonces sigue activo hasta el final del periodo pagado.",
- "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.": "Nuestro proceso de pedido lo lleva a cabo nuestro revendedor en línea Paddle.com. Paddle.com es el vendedor oficial (Merchant of Record) de todos nuestros pedidos. Paddle atiende todas las consultas de atención al cliente y gestiona las devoluciones.",
  "Remove Plus from this browser": "Quitar Plus de este navegador",
  "Press again to remove it": "Pulsa otra vez para quitarlo",
  "Plus is on in this browser": "Plus está activo en este navegador",
@@ -3192,7 +3188,7 @@
  "Checking Plus with the server…": "Comprobando Plus con el servidor…",
  "Plus runs until {date}.": "Plus sigue activo hasta el {date}.",
  "This key no longer opens Plus: its subscription has ended, or the key was replaced by newer ones.": "Esta clave ya no da acceso a Plus: su suscripción ha terminado, o la clave fue sustituida por otras más nuevas.",
- "Subscribing again below brings Plus back, with a new key.": "Si te suscribes de nuevo abajo, Plus vuelve, con una clave nueva.",
+ "Subscribing again brings Plus back, with a new key.": "Si te suscribes de nuevo, Plus vuelve, con una clave nueva.",
  "This browser would not keep Plus: it lasts until this tab closes. Copy the key now and enter it again next time.": "Este navegador no ha guardado Plus: dura hasta que se cierre esta pestaña. Copia la clave ahora y escríbela de nuevo la próxima vez.",
  "The key is your Plus on your other devices too: open this page there and enter it. Keep it to yourself.": "La clave es tu Plus también en tus otros dispositivos: abre allí esta página y escríbela. Guárdala para ti.",
  "What you type here is sent to this site's server to find your subscription; it asks Paddle, which sold it, about the invoice number.": "Lo que escribes aquí se envía al servidor de este sitio para encontrar tu suscripción; el servidor consulta el número de factura a Paddle, que realizó la venta.",
@@ -3517,5 +3513,7 @@
  "Plus cannot be bought in this browser. Use another browser; a key bought elsewhere works here.": "Plus no se puede comprar en este navegador. Usa otro navegador; una clave comprada en otro sitio también funciona aquí.",
  "Removed in this tab only: this browser still keeps the key.": "Quitada solo en esta pestaña: este navegador aún guarda la clave.",
  "This subscription was given {n} keys within a day. Use one of them, or try again in {m} min.": "Esta suscripción ha recibido {n} claves en un día. Usa una de ellas o inténtalo de nuevo en {m} min.",
- "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "Esta suscripción ha recibido {n} claves en un día. Usa una de ellas o inténtalo de nuevo en {h} h."
+ "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "Esta suscripción ha recibido {n} claves en un día. Usa una de ellas o inténtalo de nuevo en {h} h.",
+ "Renews monthly until you end it · before tax · sold by Paddle.com, Merchant of Record": "Se renueva cada mes hasta que la canceles · sin impuestos · lo vende Paddle.com, Merchant of Record",
+ "No account: paying turns Plus on in this browser and gives you a key for your other devices.": "Sin cuenta: al pagar, Plus se activa en este navegador y recibes una clave para tus otros dispositivos."
 }

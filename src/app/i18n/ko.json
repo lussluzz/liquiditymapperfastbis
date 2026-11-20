@@ -2939,13 +2939,9 @@
  "Plus is being set up. This page will carry its price and the checkout when it opens.": "Plus는 준비 중입니다. 판매가 시작되면 이 페이지에서 가격을 확인하고 결제할 수 있습니다.",
  "Plus is being set up, and the checkout opens on this page soon. Prices are before tax.": "Plus는 준비 중이며, 곧 이 페이지에서 결제할 수 있습니다. 가격은 세금 별도입니다.",
  "{price} a month": "월 {price}",
- "renews each month": "매월 자동 갱신",
  "{price} a year": "연 {price}",
- "renews each year": "매년 자동 갱신",
  "Renew Plus": "Plus 갱신하기",
  "Get Plus": "Plus 구독하기",
- "Prices are before tax; the checkout shows the total in your currency. You can end Plus at any time, and it then runs to the end of the period paid for.": "가격은 세금 별도이며, 결제 창에 내 통화로 계산한 총액이 표시됩니다. Plus는 언제든지 해지할 수 있고, 해지해도 결제한 기간이 끝날 때까지 유지됩니다.",
- "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.": "주문 절차는 저희의 온라인 리셀러인 Paddle.com이 진행합니다. Paddle.com은 저희의 모든 주문에 대한 법적 판매자(Merchant of Record)입니다. Paddle은 모든 고객 서비스 문의에 응대하고 반품을 처리합니다.",
  "Remove Plus from this browser": "이 브라우저에서 Plus 삭제",
  "Press again to remove it": "다시 누르면 삭제합니다",
  "Plus is on in this browser": "이 브라우저에서 Plus가 활성화되어 있습니다",
@@ -2982,7 +2978,7 @@
  "Checking Plus with the server…": "서버에 Plus를 확인하는 중…",
  "Plus runs until {date}.": "Plus는 {date}까지 유지됩니다.",
  "This key no longer opens Plus: its subscription has ended, or the key was replaced by newer ones.": "이 키로는 더 이상 Plus를 쓸 수 없습니다. 구독이 종료되었거나, 키가 새 키로 교체되었습니다.",
- "Subscribing again below brings Plus back, with a new key.": "아래에서 다시 구독하면 새 키로 Plus를 다시 쓸 수 있습니다.",
+ "Subscribing again brings Plus back, with a new key.": "다시 구독하면 새 키로 Plus를 다시 쓸 수 있습니다.",
  "This browser would not keep Plus: it lasts until this tab closes. Copy the key now and enter it again next time.": "이 브라우저가 Plus를 저장하지 못했습니다. Plus는 이 탭을 닫을 때까지만 유지됩니다. 지금 키를 복사해 두고 다음에 다시 입력하세요.",
  "The key is your Plus on your other devices too: open this page there and enter it. Keep it to yourself.": "이 키가 있으면 내 다른 기기에서도 Plus를 쓸 수 있습니다. 그 기기에서 이 페이지를 열고 키를 입력하세요. 키는 다른 사람에게 알려 주지 마세요.",
  "What you type here is sent to this site's server to find your subscription; it asks Paddle, which sold it, about the invoice number.": "여기에 입력한 내용은 구독을 찾기 위해 이 사이트의 서버로 전송됩니다. 서버는 인보이스 번호를 판매자인 Paddle에 문의합니다.",
@@ -3287,5 +3283,7 @@
  "Plus cannot be bought in this browser. Use another browser; a key bought elsewhere works here.": "이 브라우저에서는 Plus를 구매할 수 없습니다. 다른 브라우저를 사용하세요. 다른 곳에서 구매한 키는 여기서도 작동합니다.",
  "Removed in this tab only: this browser still keeps the key.": "이 탭에서만 삭제했습니다. 이 브라우저에는 아직 키가 저장되어 있습니다.",
  "This subscription was given {n} keys within a day. Use one of them, or try again in {m} min.": "이 구독에는 하루 동안 키가 {n}개 발급되었습니다. 그중 하나를 사용하거나 {m}분 후에 다시 시도하세요.",
- "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "이 구독에는 하루 동안 키가 {n}개 발급되었습니다. 그중 하나를 사용하거나 {h}시간 후에 다시 시도하세요."
+ "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "이 구독에는 하루 동안 키가 {n}개 발급되었습니다. 그중 하나를 사용하거나 {h}시간 후에 다시 시도하세요.",
+ "Renews monthly until you end it · before tax · sold by Paddle.com, Merchant of Record": "해지할 때까지 매월 갱신 · 세전 · 판매: Paddle.com(Merchant of Record)",
+ "No account: paying turns Plus on in this browser and gives you a key for your other devices.": "계정이 필요 없습니다. 결제하면 이 브라우저에서 Plus가 켜지고, 다른 기기에서 쓸 키를 받습니다."
 }

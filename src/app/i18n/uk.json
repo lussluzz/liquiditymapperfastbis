@@ -3197,13 +3197,9 @@
  "Plus is being set up. This page will carry its price and the checkout when it opens.": "Plus ще готується. Ціна й оплата з'являться на цій сторінці, коли відкриється продаж.",
  "Plus is being set up, and the checkout opens on this page soon. Prices are before tax.": "Plus ще готується, а оплата незабаром відкриється на цій сторінці. Ціни вказано без урахування податків.",
  "{price} a month": "{price} на місяць",
- "renews each month": "поновлюється щомісяця",
  "{price} a year": "{price} на рік",
- "renews each year": "поновлюється щороку",
  "Renew Plus": "Відновити Plus",
  "Get Plus": "Підключити Plus",
- "Prices are before tax; the checkout shows the total in your currency. You can end Plus at any time, and it then runs to the end of the period paid for.": "Ціни вказано без урахування податків; підсумкову суму у вашій валюті покаже форма оплати. Скасувати Plus можна будь-коли: підписка діятиме до кінця оплаченого періоду.",
- "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.": "Оформлення замовлень здійснює наш онлайн-реселер Paddle.com. Paddle.com є офіційним продавцем (Merchant of Record) за всіма нашими замовленнями. Paddle опрацьовує всі звернення до служби підтримки клієнтів і займається поверненнями.",
  "Remove Plus from this browser": "Прибрати Plus із цього браузера",
  "Press again to remove it": "Натисніть ще раз, щоб прибрати",
  "Plus is on in this browser": "Plus діє в цьому браузері",
@@ -3240,7 +3236,7 @@
  "Checking Plus with the server…": "Перевіряємо Plus на сервері…",
  "Plus runs until {date}.": "Plus діє до {date}.",
  "This key no longer opens Plus: its subscription has ended, or the key was replaced by newer ones.": "Цей ключ більше не відкриває Plus: його підписка закінчилася, або ключ замінили новішими.",
- "Subscribing again below brings Plus back, with a new key.": "Якщо нижче оформити підписку знову, Plus повернеться, з новим ключем.",
+ "Subscribing again brings Plus back, with a new key.": "Якщо оформити підписку знову, Plus повернеться, з новим ключем.",
  "This browser would not keep Plus: it lasts until this tab closes. Copy the key now and enter it again next time.": "Цей браузер не зберіг Plus: він діє, доки відкрита ця вкладка. Скопіюйте ключ зараз і введіть його знову наступного разу.",
  "The key is your Plus on your other devices too: open this page there and enter it. Keep it to yourself.": "Ключ — це ваш Plus і на інших ваших пристроях: відкрийте там цю сторінку й введіть його. Нікому його не передавайте.",
  "What you type here is sent to this site's server to find your subscription; it asks Paddle, which sold it, about the invoice number.": "Те, що ви тут вводите, надсилається на сервер цього сайту, щоб знайти вашу підписку; сервер запитує про номер рахунку в Paddle, продавця підписки.",
@@ -3570,5 +3566,7 @@
  "Plus cannot be bought in this browser. Use another browser; a key bought elsewhere works here.": "У цьому браузері Plus купити не можна. Скористайтеся іншим браузером; ключ, куплений деінде, працює і тут.",
  "Removed in this tab only: this browser still keeps the key.": "Видалено лише в цій вкладці: браузер досі зберігає ключ.",
  "This subscription was given {n} keys within a day. Use one of them, or try again in {m} min.": "За цією підпискою за добу вже видано ключів: {n}. Скористайтеся одним із них або спробуйте ще раз за {m} хв.",
- "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "За цією підпискою за добу вже видано ключів: {n}. Скористайтеся одним із них або спробуйте ще раз за {h} год."
+ "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "За цією підпискою за добу вже видано ключів: {n}. Скористайтеся одним із них або спробуйте ще раз за {h} год.",
+ "Renews monthly until you end it · before tax · sold by Paddle.com, Merchant of Record": "Подовжується щомісяця, доки ви не скасуєте · без податків · продавець Paddle.com, Merchant of Record",
+ "No account: paying turns Plus on in this browser and gives you a key for your other devices.": "Без облікового запису: після оплати Plus вмикається в цьому браузері, а ви отримуєте ключ для інших пристроїв."
 }

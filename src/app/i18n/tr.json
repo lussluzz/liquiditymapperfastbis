@@ -3090,13 +3090,9 @@
  "Plus is being set up. This page will carry its price and the checkout when it opens.": "Plus hazırlanıyor. Satışa açıldığında fiyatı ve ödeme ekranı bu sayfada yer alacak.",
  "Plus is being set up, and the checkout opens on this page soon. Prices are before tax.": "Plus hazırlanıyor ve ödeme ekranı yakında bu sayfada açılacak. Fiyatlara vergi dahil değildir.",
  "{price} a month": "Aylık {price}",
- "renews each month": "her ay yenilenir",
  "{price} a year": "Yıllık {price}",
- "renews each year": "her yıl yenilenir",
  "Renew Plus": "Plus'ı yenile",
  "Get Plus": "Plus'ı al",
- "Prices are before tax; the checkout shows the total in your currency. You can end Plus at any time, and it then runs to the end of the period paid for.": "Fiyatlara vergi dahil değildir; ödeme ekranı toplam tutarı kendi para biriminizde gösterir. Plus'ı istediğiniz zaman iptal edebilirsiniz; bu durumda ödenen dönemin sonuna kadar geçerli kalır.",
- "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.": "Sipariş sürecimiz, çevrimiçi yetkili satıcımız Paddle.com tarafından yürütülür. Paddle.com, tüm siparişlerimizde kayıtlı satıcıdır (Merchant of Record). Paddle, tüm müşteri hizmetleri taleplerini yanıtlar ve iade işlemlerini yürütür.",
  "Remove Plus from this browser": "Plus'ı bu tarayıcıdan kaldır",
  "Press again to remove it": "Kaldırmak için tekrar basın",
  "Plus is on in this browser": "Plus bu tarayıcıda etkin",
@@ -3133,7 +3129,7 @@
  "Checking Plus with the server…": "Plus sunucuyla doğrulanıyor…",
  "Plus runs until {date}.": "Plus {date} tarihine kadar geçerli.",
  "This key no longer opens Plus: its subscription has ended, or the key was replaced by newer ones.": "Bu anahtar artık Plus'ı açmıyor: aboneliği sona ermiş ya da yerini daha yeni anahtarlar almış.",
- "Subscribing again below brings Plus back, with a new key.": "Aşağıdan yeniden abone olursanız Plus yeni bir anahtarla geri gelir.",
+ "Subscribing again brings Plus back, with a new key.": "Yeniden abone olursanız Plus yeni bir anahtarla geri gelir.",
  "This browser would not keep Plus: it lasts until this tab closes. Copy the key now and enter it again next time.": "Bu tarayıcı Plus'ı saklamadı: Plus bu sekme kapanana kadar geçerli. Anahtarı şimdi kopyalayın ve bir dahaki sefere yeniden girin.",
  "The key is your Plus on your other devices too: open this page there and enter it. Keep it to yourself.": "Anahtar, Plus'ınızı diğer cihazlarınıza da taşır: bu sayfayı orada açıp anahtarı girin. Kimseyle paylaşmayın.",
  "What you type here is sent to this site's server to find your subscription; it asks Paddle, which sold it, about the invoice number.": "Buraya yazdıklarınız, aboneliğinizi bulmak için bu sitenin sunucusuna gönderilir; sunucu fatura numarasını satışı yapan Paddle'a sorar.",
@@ -3453,5 +3449,7 @@
  "Plus cannot be bought in this browser. Use another browser; a key bought elsewhere works here.": "Plus bu tarayıcıda satın alınamıyor. Başka bir tarayıcı kullanın; başka yerde satın alınan bir anahtar burada da çalışır.",
  "Removed in this tab only: this browser still keeps the key.": "Yalnızca bu sekmede kaldırıldı: bu tarayıcı anahtarı hâlâ saklıyor.",
  "This subscription was given {n} keys within a day. Use one of them, or try again in {m} min.": "Bu aboneliğe bir gün içinde {n} anahtar verildi. Bunlardan birini kullanın ya da {m} dk sonra yeniden deneyin.",
- "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "Bu aboneliğe bir gün içinde {n} anahtar verildi. Bunlardan birini kullanın ya da {h} sa sonra yeniden deneyin."
+ "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "Bu aboneliğe bir gün içinde {n} anahtar verildi. Bunlardan birini kullanın ya da {h} sa sonra yeniden deneyin.",
+ "Renews monthly until you end it · before tax · sold by Paddle.com, Merchant of Record": "İptal edene kadar her ay yenilenir · vergiler hariç · satıcı Paddle.com, Merchant of Record",
+ "No account: paying turns Plus on in this browser and gives you a key for your other devices.": "Hesap gerekmez: ödeme yapınca Plus bu tarayıcıda açılır ve diğer cihazlarınız için bir anahtar alırsınız."
 }

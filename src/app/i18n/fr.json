@@ -3149,13 +3149,9 @@
  "Plus is being set up. This page will carry its price and the checkout when it opens.": "Plus est en préparation. Cette page indiquera son prix et proposera le paiement dès son lancement.",
  "Plus is being set up, and the checkout opens on this page soon. Prices are before tax.": "Plus est en préparation, et le paiement ouvrira bientôt sur cette page. Les prix s’entendent hors taxes.",
  "{price} a month": "{price} par mois",
- "renews each month": "renouvelé chaque mois",
  "{price} a year": "{price} par an",
- "renews each year": "renouvelé chaque année",
  "Renew Plus": "Renouveler Plus",
  "Get Plus": "Obtenir Plus",
- "Prices are before tax; the checkout shows the total in your currency. You can end Plus at any time, and it then runs to the end of the period paid for.": "Les prix s’entendent hors taxes ; le total dans votre devise s’affiche au moment du paiement. Vous pouvez résilier Plus à tout moment ; il reste alors actif jusqu’à la fin de la période payée.",
- "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.": "Notre processus de commande est pris en charge par notre revendeur en ligne Paddle.com. Paddle.com est le vendeur officiel (Merchant of Record) pour toutes nos commandes. Paddle répond à toutes les demandes adressées au service client et gère les retours.",
  "Remove Plus from this browser": "Retirer Plus de ce navigateur",
  "Press again to remove it": "Appuyez encore pour le retirer",
  "Plus is on in this browser": "Plus est activé dans ce navigateur",
@@ -3192,7 +3188,7 @@
  "Checking Plus with the server…": "Vérification de Plus auprès du serveur…",
  "Plus runs until {date}.": "Plus reste actif jusqu’au {date}.",
  "This key no longer opens Plus: its subscription has ended, or the key was replaced by newer ones.": "Cette clé ne donne plus accès à Plus : son abonnement a pris fin, ou la clé a été remplacée par des clés plus récentes.",
- "Subscribing again below brings Plus back, with a new key.": "Vous abonner de nouveau ci-dessous rétablit Plus, avec une nouvelle clé.",
+ "Subscribing again brings Plus back, with a new key.": "Vous abonner de nouveau rétablit Plus, avec une nouvelle clé.",
  "This browser would not keep Plus: it lasts until this tab closes. Copy the key now and enter it again next time.": "Ce navigateur n’a pas conservé Plus : il reste actif jusqu’à la fermeture de cet onglet. Copiez la clé maintenant et saisissez-la de nouveau la prochaine fois.",
  "The key is your Plus on your other devices too: open this page there and enter it. Keep it to yourself.": "La clé, c’est aussi votre Plus sur vos autres appareils : ouvrez-y cette page et saisissez-la. Gardez-la pour vous.",
  "What you type here is sent to this site's server to find your subscription; it asks Paddle, which sold it, about the invoice number.": "Ce que vous saisissez ici est envoyé au serveur de ce site pour retrouver votre abonnement ; ce serveur interroge Paddle, qui a réalisé la vente, sur le numéro de facture.",
@@ -3517,5 +3513,7 @@
  "Plus cannot be bought in this browser. Use another browser; a key bought elsewhere works here.": "Plus ne peut pas être acheté dans ce navigateur. Utilisez un autre navigateur ; une clé achetée ailleurs fonctionne ici.",
  "Removed in this tab only: this browser still keeps the key.": "Supprimée dans cet onglet seulement : ce navigateur garde encore la clé.",
  "This subscription was given {n} keys within a day. Use one of them, or try again in {m} min.": "Cet abonnement a reçu {n} clés en une journée. Utilisez l’une d’elles, ou réessayez dans {m} min.",
- "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "Cet abonnement a reçu {n} clés en une journée. Utilisez l’une d’elles, ou réessayez dans {h} h."
+ "This subscription was given {n} keys within a day. Use one of them, or try again in {h} h.": "Cet abonnement a reçu {n} clés en une journée. Utilisez l’une d’elles, ou réessayez dans {h} h.",
+ "Renews monthly until you end it · before tax · sold by Paddle.com, Merchant of Record": "Renouvelé chaque mois jusqu’à résiliation · hors taxes · vendu par Paddle.com, Merchant of Record",
+ "No account: paying turns Plus on in this browser and gives you a key for your other devices.": "Pas de compte : le paiement active Plus dans ce navigateur et vous donne une clé pour vos autres appareils."
 }
