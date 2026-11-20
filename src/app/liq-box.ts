@@ -8,8 +8,8 @@ import type { InfoLine } from './infobox.ts';
 import { t } from './i18n.ts';
 import { usd } from './format.ts';
 import { distanceText } from './panes/ladder-info.ts';
-import { onTheWay, partsBetween, partsOnTheWay, type LevelsKind, type LiqParts, type LiqRow, type LiqStanding } from './liq-levels.ts';
-import { countLabel, sideTitle, splitLabel, splitText, topLabel } from './liq-words.ts';
+import { onTheWay, partsBetween, partsOnTheWay, type LevelsKind, type LiqParts, type LiqRow, type LiqSet, type LiqStanding } from './liq-levels.ts';
+import { countLabel, ordersAbsent, sideTitle, splitLabel, splitText, topLabel } from './liq-words.ts';
 
 /** An amount as the boxes write it: "$1.2M". */
 export const dollars = (value: number): string => `$${usd(value)}`;
@@ -19,15 +19,17 @@ export const dollars = (value: number): string => `$${usd(value)}`;
  * level (and how much of it still stands), how far it is from the price, how much is on the way there (the liquidation column's curve at the
  * level's far edge), how many positions or orders make it up and how big the largest is, and its two parts (isolated and cross margin;
  * whole-position orders and orders with their own size). Liq + stops (`parts`) gives both of its figures as their total and its two parts.
+ * `whose` names the group of a lane that has one beside another group's (everyone beside the profitable traders, `stripePlan`), after each
+ * side's title ("Long liquidations · Profitable"); null names none.
  */
-export function stripeBoxLines(row: LiqRow, kind: LevelsKind, price: number, standing: LiqStanding | null, parts: LiqParts | null, shown: (side: 'long' | 'short') => boolean): InfoLine[] {
+export function stripeBoxLines(row: LiqRow, kind: LevelsKind, price: number, standing: LiqStanding | null, parts: LiqParts | null, shown: (side: 'long' | 'short') => boolean, whose: string | null = null): InfoLine[] {
   const lines: InfoLine[] = [];
   for (const side of ['long', 'short'] as const) {
     if (!shown(side)) continue;
     const total = row[side], left = row[`${side}Left`], iso = row[`${side}Iso`], top = row[`${side}Top`];
     // In the colour it is drawn in: what sells in the falling colour, what buys in the rising one (take profits of shorts are buys).
     const sells = kind === 'takes' ? side === 'short' : side === 'long';
-    lines.push({ text: sideTitle(kind, side), color: sells ? 'sell' : 'buy', bold: true, rule: true });
+    lines.push({ text: whose ? `${sideTitle(kind, side)} · ${whose}` : sideTitle(kind, side), color: sells ? 'sell' : 'buy', bold: true, rule: true });
     // What still stands, said first wherever it prints differently from the whole (Sol's review, round 2: a level 0.4 % gone printed the whole
     // and its standing parts scaled back up to it); the split is of what still stands, so it adds up to the figure said first.
     const taken = usd(left) !== usd(total);
@@ -48,6 +50,18 @@ export function stripeBoxLines(row: LiqRow, kind: LevelsKind, price: number, sta
     if (!parts) lines.push({ label: splitLabel(kind), text: `${dollars(iso)} / ${dollars(total - iso)}` });
   }
   return lines;
+}
+
+/**
+ * The stripe's box for a row of a lane drawn from a set of its own (a split's right lane: the stops of the chosen traders, or the profitable
+ * traders' levels), as `stripeBoxLines` writes it from that set alone, its group named where `whose` gives one; where the set's stop and
+ * take-profit orders are not on the server (the profitable traders'), it says so under them, never anything of everyone's in their place.
+ */
+export function setBoxLines(row: LiqRow, set: Pick<LiqSet, 'levels' | 'standing' | 'partStandings' | 'ordersAbsent'>, price: number, shown: (side: 'long' | 'short') => boolean, whose: string | null = null): InfoLine[] {
+  const kind = set.levels?.kind;
+  if (!kind) return [];
+  const lines = stripeBoxLines(row, kind, price, set.standing(), kind === 'both' ? set.partStandings() : null, shown, whose);
+  return set.ordersAbsent() ? [...lines, { text: ordersAbsent(), color: 'muted', wrap: true, rule: true }] : lines;
 }
 
 /**
@@ -73,9 +87,10 @@ export function mirrorSplits(parts: LiqParts, price: number, d: number, below: n
  * the row [lo, hi)), for Liq + stops each with its parts under it, how many and the largest, and the same distance the other way (`other`).
  */
 export function probeBoxLines(f: { kind: LevelsKind; side: 'long' | 'short'; at: number; price: number; way: number; other: number; level: number; lo: number; hi: number; positions: number; top: number; parts: LiqParts | null }): InfoLine[] {
-  const way = Math.max(0, f.way), waySplit = f.parts ? partsOnTheWay(f.parts, f.price, f.at) : null;
+  const way = Math.max(0, f.way), waySplit = f.parts ? partsOnTheWay(f.parts, f.price, f.at) : null, sells = f.kind === 'takes' ? f.side === 'short' : f.side === 'long';
   const lines: InfoLine[] = [
-    { text: sideTitle(f.kind, f.side), color: f.side === 'long' ? 'sell' : 'buy', bold: true },
+    // In the colour it is drawn in: what sells in the falling colour (take profits of longs, above), what buys in the rising one.
+    { text: sideTitle(f.kind, f.side), color: sells ? 'sell' : 'buy', bold: true },
     { label: t('Distance'), text: distanceText(f.at, f.price) },
     { label: t('If price gets here'), text: dollars(way), bold: true },
     ...(waySplit ? [{ text: splitText(waySplit, way), color: 'muted', wrap: true } satisfies InfoLine] : []),
@@ -84,6 +99,6 @@ export function probeBoxLines(f: { kind: LevelsKind; side: 'long' | 'short'; at:
   ];
   if (f.positions > 0) lines.push({ label: countLabel(f.kind), text: String(f.positions) });
   if (f.top > 0 && f.level > 0) lines.push({ label: topLabel(f.kind), text: dollars(f.top) });
-  lines.push({ label: t('Same distance, other side'), text: dollars(Math.max(0, f.other)), color: f.side === 'long' ? 'buy' : 'sell' });
+  lines.push({ label: t('Same distance, other side'), text: dollars(Math.max(0, f.other)), color: sells ? 'buy' : 'sell' });
   return lines;
 }
