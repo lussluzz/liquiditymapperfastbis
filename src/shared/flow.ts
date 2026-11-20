@@ -16,7 +16,7 @@ const MINUTE = 60_000, DAY = 86_400_000;
 /** How long the recorder keeps minutes in memory (the page asks for at most a day). */
 export const FLOW_MEMORY_MS = 36 * 3_600_000;
 /** How long a store keeps them. */
-export const FLOW_STORE_MS = 7 * 24 * 3_600_000;
+export const FLOW_STORE_MS = 3 * 24 * 3_600_000;
 const SEEN_MAX = 30_000;
 /** At most this many instruments are recorded (a day and a half of one is about 2 MB, so the recorder stays under ~100 MB however many markets exist). */
 const MAX_INSTRUMENTS = 48;

@@ -8,7 +8,7 @@ export const COLUMN_MS = 60_000;
 export const SAMPLE_MS = 5_000;
 /** Books older than this at sample time are treated as unobserved (a gap), never carried forward. */
 export const STALE_MS = 45_000;
-export const RETENTION_MS = 7 * 24 * 3_600_000;
+export const RETENTION_MS = 3 * 24 * 3_600_000;
 /** A browser keeps a day of recordings: the page is not a server, and a week of columns would not fit comfortably in memory. */
 export const BROWSER_RETENTION_MS = 24 * 3_600_000;
 /**

@@ -29,7 +29,7 @@ export const LIQUIDATION_FLOOR_USD = 100;
 /** The most liquidations one answer carries (the largest of its window when more match). */
 export const LIQUIDATIONS_PER_ANSWER = 5_000;
 /** How long liquidations are kept (the server's and the browser engine's): an older one is not known, not absent. */
-export const LIQUIDATION_RETENTION_MS = 7 * 24 * 3_600_000;
+export const LIQUIDATION_RETENTION_MS = 3 * 24 * 3_600_000;
 const MEMORY_MAX = 20_000;
 const SEEN_MAX = 20_000;
 /** A last traded price further than this from a liquidation's own time is not taken for where the market was then. */

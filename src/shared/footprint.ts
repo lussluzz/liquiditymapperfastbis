@@ -3,7 +3,7 @@ import { levelsOf } from './profile.ts';
 import { KeptCache } from './kept-cache.ts';
 
 const MINUTE = 60_000, HOUR = 3_600_000;
-const RETENTION_MS = 7 * 24 * 3_600_000;
+const RETENTION_MS = 3 * 24 * 3_600_000;
 /**
  * How many minutes of rows read back from the store a server keeps for the next question: about a day of its BTC markets. The page asks
  * again for what it shows (the Range panel every few seconds, the profile every minute), and parsing a stored minute costs some 45 µs.

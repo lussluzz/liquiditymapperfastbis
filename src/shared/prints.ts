@@ -16,7 +16,7 @@ export type PrintRow = TradeLike & { lo?: unknown; hi?: unknown; fills?: unknown
 export const PRINT_FLOOR_USD = 25_000;
 /** The most prints one answer carries (the largest of its window when more match). */
 export const PRINTS_PER_ANSWER = 5_000;
-const RETENTION_MS = 7 * 24 * 3_600_000;
+const RETENTION_MS = 3 * 24 * 3_600_000;
 /** Newest prints held in memory (older ones stay in SQLite). */
 const MEMORY_MAX = 20_000;
 const SEEN_MAX = 30_000;

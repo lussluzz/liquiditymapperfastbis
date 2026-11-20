@@ -55,7 +55,7 @@ const ACCEPT_MS = 2 * 3_600_000;
 /** How much is read back at a time: at the per-minute cap on 27 venues, about 4,000 groups (one read of them holds the worker some 70 ms). */
 const HYDRATE_STEP_MS = 15 * 60_000;
 /** How long the recorder keeps groups and minutes: nothing older can be asked for. */
-export const ABSORPTION_RETENTION_MS = 7 * 24 * 3_600_000;
+export const ABSORPTION_RETENTION_MS = 3 * 24 * 3_600_000;
 /**
  * The most room the packed stored hours take (shared/absorption-hours.ts), the least recently asked let go first: a week of BTC's fourteen
  * venues, 630,000 groups, packs into 24 MB (2026-10-20); the per-minute cap on 27 venues would need several times that.
