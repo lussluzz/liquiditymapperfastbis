@@ -49,9 +49,11 @@ which comes back with Plus (`effectiveView` in `src/app/liq-view.ts`).
   `Retry-After` or five minutes; the profitable traders' liquidations stay drawn alone meanwhile. Every drawing's cache is keyed by its
   layer and order family. The page reads that group alone from the files and leaves whatever else they hold unread.
 - **Split** (`LiqLevelSettings.split`: `none`, `kinds`, `groups`; Plus) draws the liquidation column as two sub-columns (`liq-split.ts`,
-  `splitPair` in `liq-view.ts`): `kinds` liquidations beside stops of the chosen traders on one shared scale (it turns both kinds on, and a kind
-  switched off returns it to `none` on every write, `readLiqLevels`); `groups` everyone's chosen kinds beside the profitable traders', each on
-  its own scale, Traders hidden and never written. The source keeps the right column's view beside the one series and asks both columns'
+  `splitPair` in `liq-view.ts`): `kinds` liquidations beside stops of the chosen traders on one shared scale (it turns both kinds on);
+  `groups` everyone's chosen kinds beside the profitable traders', each on its own scale, Traders hidden and never written. A kind a split
+  needs switched off keeps the saved split (owner's rule, 2026-11-20; until then every write returned it to `none`): it is drawn as none
+  (`splitFor`, the precedent of a map too narrow to split), the levels control keeps it chosen and says what brings it back
+  (`keptSplitNote`), with Traders back where the column is drawn as one, and the split is drawn again once the kind is on. The source keeps the right column's view beside the one series and asks both columns'
   files together, whatever the room (`ensure(coin, onChange, view, right)`; the map and the Liq tab ask through `liveAsk`). The map widens the
   column to 2 x 100 px only where the plot keeps `MAP_PLOT_FLOOR` (`liqColumnWidth`, the same rule for `gutterAt`), never on a compact map;
   with less room it draws the fallback (`narrowView`: the two added up, or everyone's) and says "Too narrow to split". The stripe gives each
@@ -64,11 +66,25 @@ which comes back with Plus (`effectiveView` in `src/app/liq-view.ts`).
   with its "as of" named ("All traders: stops as of 14:00"), or everyone's reason, named, where their lane draws nothing; then the profitable
   traders' positions and stops times wherever they differ from what everyone's part says or their stops are old, or the reason their lane
   draws nothing, each named ("Profitable traders: stops as of 11:00", `ofGroup`). Where both groups' times agree it reads as before. The note
-  takes up to four lines of whole phrases (`noteLines`), and the stripe's captions keep clear of it. The stripe is painted by `paintStripe`
+  takes up to four lines of whole phrases (`noteLines`), never down to the volume strip's names: on a short map (a phone held sideways, a
+  138 px plot) it takes fewer lines, one at least, and where even that one reaches them the strip leaves the name under it out (`layNote`,
+  `StripDraw.clear`). The stripe's captions keep clear of it. The stripe is painted by `paintStripe`
   (`liq-stripe.ts`), which reports what it painted: a lane is given only where
   it can be painted (`LANE_MIN_W`, 2 px: on a thin stripe the take profits' lane narrows, then goes), and only painted lanes are captioned or
-  answer the pointer. Every sub-column is captioned; the take profits stay with the left set. The phone's Liq tab splits into halves at
-  2 x 120 px. The Depth pane, and everything else that draws one series, draws the left column's set (`effectiveView`).
+  answer the pointer. Every sub-column is captioned; the take profits stay with the left set. The caption plates keep clear of the map's
+  corner buttons (whichever it shows: the desktop's row, or a phone's Draw key, `cornerSpan`), the legend, both notes, the volume strip's
+  names and each other: in the rows they always stood in where those are clear, else each at the highest free place (a phone held
+  sideways; `captionKeepOut`, `placeCaptions`), never past the plot's foot: where one has no room the split's lanes keep theirs and the
+  take profits' plate is left out (its lane still answers the pointer). They are painted after the map's lines and bars, so none runs
+  across them. The
+  phone's Liq tab splits into halves at 2 x 120 px; a finger there reads both halves in a box each, placed together (`placeProbeBoxes`),
+  titled with its group under Everyone | Profitable ("Long liquidations and stops · Profitable"), and saying less where the ladder is too
+  short for the two whole (`probeDetail`: first without the count, the largest and the other side, then the distance, then the level; a total
+  of both keeps its parts). Everything else that draws one series draws the left column's set (`effectiveView`), except the Depth pane:
+  Split is the column's and the stripe's choice, never the Depth pane's, which draws the choice as with Split None (`depthView`, owner's rule
+  of 2026-11-20): Liquidations | Stops as *Liq + stops* of the chosen traders, and Everyone | Profitable as everyone's levels (the saved
+  Traders value is not drawn, nor written). Its bands, header, table, Range summary and levels button all follow it; its tip says the
+  Everyone | Profitable case. The Depth plot shares the map's time axis, so a split that widens the column narrows it by the same pixels.
 - **Liq + stops apart**: wherever the page gives a total of both (the stripe's box, the column's reading and its Mirror box, the Liq tab's
   finger), it adds "Total $X = liquidations $Y + stops $Z" (`partStandings`, `partsBetween`, `partsOnTheWay`); the picture stays the
   total. The Depth pane's readout does not split it: its history rows hold the sum only.
