@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { LADDER_SUB_MIN, SPLIT_COLUMN_W, SPLIT_SUB_W, ladderSplitFits, liqColumnWidth, placeProbeBoxes, splitFits, splitHeads, splitLanes, splitScales, placeCaptions, subAt, subColumns, type BoxAt, type BoxSize } from '../src/app/liq-split.ts';
+import { LADDER_SUB_MIN, SPLIT_COLUMN_W, SPLIT_SUB_W, ladderSplitFits, liqColumnWidth, ownScales, placeProbeBoxes, splitFits, splitHeads, splitLanes, splitScales, placeCaptions, subAt, subColumns, whyLines, type BoxAt, type BoxSize } from '../src/app/liq-split.ts';
 import { MAP_PLOT_FLOOR } from '../src/app/layouts/dock-model.ts';
 import { LIQ_SPLITS, readLiqLevels } from '../src/app/liq-url.ts';
 import { FREE_VIEW, curveOf, depthView, effectiveSplit, effectiveView, narrowView, splitPair } from '../src/app/liq-view.ts';
@@ -50,19 +50,51 @@ test('liquidations beside stops share one scale (a bar compares across the divid
   assert.deepEqual(splitScales({ maxLevel: 0, maxCum: 0 }, { maxLevel: 0, maxCum: 0 }, false), [{ maxLevel: 1, maxCum: 1 }, { maxLevel: 1, maxCum: 1 }], 'never divided by zero');
 });
 
-test('the split column\'s heading: each caption over its column, the maxima under each where they have their own scale, once across where shared; nothing cut', () => {
-  const kinds = splitHeads(measure, { captions: ['Liquidations', 'Stops'], shared: true, subRoom: 89, wholeRoom: 189, maxima: ['LEVEL MAX $12.3M', 'CUM MAX $120.0M'] });
-  assert.deepEqual(kinds.subs.map(s => s.scale), [[], []], 'shared: no scale per column');
-  assert.deepEqual(kinds.across, ['LEVEL MAX $12.3M', 'CUM MAX $120.0M']);
-  assert.equal(kinds.rows, 1 + 2);
-  const groups = splitHeads(measure, { captions: ['Everyone', 'Profitable'], shared: false, subRoom: 89, wholeRoom: 189,
+test('the split column\'s heading: each caption over its column with its own maxima under it; where both share one scale, words across and no figure; nothing cut', () => {
+  // Liquidations beside stops (owner, 2026-11-21): the liquidations' largest row $12.3M with the take profits' $14.0M beside them, their curve
+  // $120.0M; the stops' $1.2M and $9.0M. The bars share the larger of each, but each heading says its own.
+  const own = ownScales({ maxLevel: 12.3e6, maxCum: 120e6 }, { maxLevel: 14e6, maxCum: 30e6 }, { maxLevel: 1.2e6, maxCum: 9e6 });
+  assert.deepEqual(own, [{ maxLevel: 14e6, maxCum: 120e6 }, { maxLevel: 1.2e6, maxCum: 9e6 }], 'the left counts the take profits\' bars, never their curve');
+  assert.deepEqual(splitScales(own[0]!, own[1]!, true), [own[0], own[0]], 'the bars still share the larger of each');
+  assert.deepEqual(ownScales(null, null, { maxLevel: 1, maxCum: 2 }), [null, { maxLevel: 1, maxCum: 2 }], 'nothing drawn, no maxima');
+  const money = (v: number): string => `$${(v / 1e6).toFixed(1)}M`;
+  const maxima = (sc: { maxLevel: number; maxCum: number } | null): [string, string] | null => sc && [`LEVEL MAX ${money(sc.maxLevel)}`, `CUM MAX ${money(sc.maxCum)}`];
+  const kinds = splitHeads(measure, { captions: ['Liquidations', 'Stops'], maxima: [maxima(own[0]), maxima(own[1])], across: 'Both columns on one dollar scale', subRoom: 89, wholeRoom: 189 });
+  // At 6 px a letter "LEVEL MAX $14.0M" (96 px) does not fit 89 px: it wraps under itself, the value whole on the next line.
+  assert.deepEqual(kinds.subs[0].scale, ['LEVEL MAX', '$14.0M', 'CUM MAX', '$120.0M'], 'the liquidations\' own');
+  assert.deepEqual(kinds.subs[1].scale, ['LEVEL MAX', '$1.2M', 'CUM MAX $9.0M'], 'the stops\' own, not the shared scale\'s');
+  assert.deepEqual(kinds.across, ['Both columns on one dollar', 'scale'], 'the words wrap across the column, never cut');
+  assert.ok(kinds.across.every(line => !/\d/.test(line)), 'no figure across: at the column\'s left edge it reads as the liquidations\'');
+  assert.equal(kinds.rows, 1 + 4 + 2);
+  const waiting = splitHeads(measure, { captions: ['Liquidations', 'Stops'], maxima: [maxima(own[0]), null], across: 'One scale', subRoom: 89, wholeRoom: 189 });
+  assert.deepEqual(waiting.subs[1].scale, [], 'a column with nothing to draw prints no figure: it says why instead');
+  assert.equal(waiting.rows, 1 + 4 + 1);
+  const groups = splitHeads(measure, { captions: ['Everyone', 'Profitable'], across: null, subRoom: 89, wholeRoom: 189,
     maxima: [['LEVEL MAX $12.3M', 'CUM MAX $120.0M'], ['LEVEL MAX $1.2M', 'CUM MAX $9.0M']] });
   assert.deepEqual(groups.across, []);
-  // At 6 px a letter "LEVEL MAX $12.3M" (96 px) does not fit 89 px: it wraps under itself, the value whole on the next line.
   assert.deepEqual(groups.subs[0].scale, ['LEVEL MAX', '$12.3M', 'CUM MAX', '$120.0M']);
   assert.deepEqual(groups.subs[1].scale, ['LEVEL MAX', '$1.2M', 'CUM MAX $9.0M']);
   assert.equal(groups.rows, 1 + 4);
-  for (const line of [...groups.subs.flatMap(s => [...s.caption, ...s.scale]), ...kinds.across]) assert.ok(!line.includes('…'), `never cut: ${line}`);
+  for (const line of [...kinds.subs, ...groups.subs].flatMap(s => [...s.caption, ...s.scale]).concat(kinds.across)) assert.ok(!line.includes('…'), `never cut: ${line}`);
+  // The map feeds each heading its column's own figures (not the shared scale's), and says the one scale in words only where it is shared.
+  const heat = fs.readFileSync('src/app/panes/heat-pane.ts', 'utf8');
+  assert.match(heat, /own = ownScales\(profs\[0\], tprof, profs\[1\]\)/);
+  assert.match(heat, /maxima: \[maxima\(own\[0\]\), maxima\(own\[1\]\)\], across: shared \? t\('Both columns on one dollar scale'\) : null/);
+});
+
+test('a sub-column\'s why-text never runs past the plot\'s foot under a taller heading (Sol, review 2026-11-21)', () => {
+  // A 240 px map (the least a map pane is, a 218 px plot) under a tall heading: as many lines as end inside the plot, no more.
+  const ph = 218, head = 140;
+  const n = whyLines(ph, head);
+  assert.ok(head + 4 + 12 * (n - 1) + 10 <= ph, 'the last line ends inside the plot');
+  assert.ok(head + 4 + 12 * n + 10 > ph, 'and no line that would fit is left out');
+  assert.equal(whyLines(2000, 60), 8, 'a tall map: as many as before');
+  assert.equal(whyLines(80, 76), 1, 'no room at all: one line, its end an ellipsis');
+  // Drawn under the heading band (the History link's row included), not under its text rows, where the band veiled its first lines; and the
+  // words across both columns painted after the Mirror, whose dimming would split the sentence at the divider.
+  const heat = fs.readFileSync('src/app/panes/heat-pane.ts', 'utf8');
+  assert.match(heat, /const from = this\.#liqHeadH;\n.*\n\s+wrapText\(wide, why, subRoom\(sub\), whyLines\(ph, from\)\)\.forEach\(\(line, n\) => ctx\.fillText\(line, sub\.x0 \+ LIQ_PAD, from \+ 4 \+ 12 \* n\)\)/);
+  assert.ok(heat.indexOf('heads.across.forEach') > heat.indexOf('if (ms && mset) this.#paintLiqColumnMirror(ctx, state, ms, price, subs[at].x0'), 'the words across after the Mirror');
 });
 
 test('the stripe\'s lanes for liquidations beside stops: the take profits by the live edge, then liquidations, then stops beside the column; captions never overlap', () => {
@@ -97,7 +129,7 @@ test('the Split choice: liquidations beside stops turns both kinds on, everyone 
   assert.equal(shownSplit({ ...s, split: 'kinds' }, true), 'kinds', 'liquidations beside stops with stops off: still chosen, kept (owner, 2026-11-20)');
   assert.equal(keptSplitNote({ ...s, split: 'kinds' }, true), 'Liquidations | Stops comes back when liquidations and stops are both on.', 'and the control says what brings it back');
   assert.equal(keptSplitNote({ ...s, stops: true, split: 'kinds' }, true), '', 'drawn: nothing to say');
-  assert.equal(keptSplitNote({ liq: false, stops: false, takes: true, group: 'all', split: 'groups' }, true), 'Everyone | Profitable comes back when liquidations or stops are on.');
+  assert.equal(keptSplitNote({ liq: false, stops: false, takes: true, group: 'all', split: 'groups' }, true), 'Everyone | +PnL comes back when liquidations or stops are on.');
   assert.equal(keptSplitNote({ ...s, split: 'kinds' }, false), '', 'nothing split for a visitor, nothing said');
   // Through the page's store every write is read: a kind switched off keeps the split, drawn as none until the kind is on again; the group is
   // untouched by a split.
@@ -134,11 +166,11 @@ test('the levels control shows Split as one of three, locked without Plus, left 
     assert.deepEqual(m.writes.at(-1), { split: 'groups' });
     assert.equal(traders.hidden, true, 'Traders has no say beside the profitable traders\' column');
     assert.deepEqual(opts.map(o => o.getAttribute('aria-checked')), ['false', 'false', 'true']);
-    assert.match(root.querySelector('.lv-sum')!.textContent, /Left: Everyone · Right: Profitable · Curve: Liquidations/);
+    assert.match(root.querySelector('.lv-sum')!.textContent, /Left: Everyone · Right: \+PnL · Curve: Liquidations/);
     opts[1]!.click();
     assert.deepEqual(m.writes.at(-1), { split: 'kinds', liq: true, stops: true });
     assert.equal(traders.hidden, false);
-    assert.match(root.querySelector('.lv-sum')!.textContent, /Left: Liquidations · Right: Stops · Profitable/);
+    assert.match(root.querySelector('.lv-sum')!.textContent, /Left: Liquidations · Right: Stops · \+PnL/);
     c.destroy();
     // Without Plus: both splits locked, pressing one opens the presentation and writes nothing.
     const v = model(readLiqLevels({ liq: true }), false), locked: unknown[] = [];
@@ -158,14 +190,14 @@ test('the levels control shows Split as one of three, locked without Plus, left 
 test('the words of a split: its name on the button, its name in the control, each column\'s caption, the take profits\' whose, the summary and the description', () => {
   const kinds = splitPair(readLiqLevels({ liq: true, stops: true, takes: true, group: 'profitable', split: 'kinds' }), true)!;
   const groups = splitPair(readLiqLevels({ liq: true, stops: true, split: 'groups' }), true)!;
-  assert.equal(splitName('kinds'), 'Liq | Stops'); assert.equal(splitName('groups'), 'Everyone | Profitable');
-  assert.deepEqual(['none', 'kinds', 'groups'].map(s => splitChoiceName(s as 'none')), ['None', 'Liquidations | Stops', 'Everyone | Profitable']);
-  assert.deepEqual(subNames(kinds), ['Liquidations', 'Stops']); assert.deepEqual(subNames(groups), ['Everyone', 'Profitable']);
-  assert.equal(takesOf('profitable'), 'Take profits · Profitable');
-  assert.equal(pairSummary(kinds), 'Left: Liquidations · Right: Stops · TP bars on the left · Profitable');
-  assert.equal(pairSummary(groups), 'Left: Everyone · Right: Profitable · Curve: Liq + stops');
-  assert.equal(pairDescription(groups), 'Left column: All traders. Right column: Profitable traders. Curve: Liquidation and stop levels.');
-  assert.match(pairDescription(kinds), /^Left column: Liquidation levels\. Right column: Stop levels\. Take-profit bars shown on the left\. Traders: Profitable\.$/);
+  assert.equal(splitName('kinds'), 'Liq | Stops'); assert.equal(splitName('groups'), 'Everyone | +PnL');
+  assert.deepEqual(['none', 'kinds', 'groups'].map(s => splitChoiceName(s as 'none')), ['None', 'Liquidations | Stops', 'Everyone | +PnL']);
+  assert.deepEqual(subNames(kinds), ['Liquidations', 'Stops']); assert.deepEqual(subNames(groups), ['Everyone', '+PnL']);
+  assert.equal(takesOf('profitable'), 'Take profits · +PnL');
+  assert.equal(pairSummary(kinds), 'Left: Liquidations · Right: Stops · TP bars on the left · +PnL');
+  assert.equal(pairSummary(groups), 'Left: Everyone · Right: +PnL · Curve: Liq + stops');
+  assert.equal(pairDescription(groups), 'Left column: All traders. Right column: +PnL traders. Curve: Liquidation and stop levels.');
+  assert.match(pairDescription(kinds), /^Left column: Liquidation levels\. Right column: Stop levels\. Take-profit bars shown on the left\. Traders: \+PnL\.$/);
   assert.equal(splitPair({ ...FREE_VIEW, split: 'groups' }, false), null, 'nothing split without Plus');
 });
 
@@ -198,27 +230,27 @@ test('the split\'s pieces are where the page draws them: the map\'s split painte
   assert.match(heat, /if \(pair && !strip && W === SPLIT_COLUMN_W\) \{ this\.#paintLiqSplit\(ctx, state, pw, ph, pair\); return; \}/);
   assert.match(heat, /const set: LiqSet = pair\?\.split === 'kinds' \? src\.setOf\(narrowView\(pair\)\) : src;/, 'too narrow: the sum, or everyone\'s');
   assert.match(fs.readFileSync('src/app/liq-stripe.ts', 'utf8'), /splitLanes\(x0, pw, !!takes\)/); assert.match(heat, /this\.#placeLiqCaptions\(ctx, painted\.captions, pw\)/);
-  assert.match(heat, /splitScales\(\{ maxLevel: Math\.max\(profs\[0\]\?\.maxLevel \?\? 0, tprof\?\.maxLevel \?\? 0\), maxCum: profs\[0\]\?\.maxCum \?\? 0 \},\n\s+\{ maxLevel: profs\[1\]\?\.maxLevel \?\? 0, maxCum: profs\[1\]\?\.maxCum \?\? 0 \}, pair\.split === 'kinds'\)/);
+  assert.match(heat, /const shared = pair\.split === 'kinds', own = ownScales\(profs\[0\], tprof, profs\[1\]\), none: SubScale = \{ maxLevel: 0, maxCum: 0 \};\n\s+const scales = splitScales\(own\[0\] \?\? none, own\[1\] \?\? none, shared\);/);
   assert.match(tab, /halves = !!pair && ladderSplitFits\(W - AXIS\)/); assert.match(tab, /#paintHalves\(/);
   // The Depth pane is not split (owner, 2026-11-20): every place that asks what it draws (its series, its button, its Range summary's key) reads
-  // `liveDepthView`, never the left column's set; only Everyone | Profitable is told in its tip.
+  // `liveDepthView`, never the left column's set; only Everyone | +PnL is told in its tip.
   assert.equal((depth.match(/liveDepthView\(/g) ?? []).length, 3); assert.doesNotMatch(depth, /liveView\(/);
-  assert.match(depth, /liveSplit\(this\.store\.state\.liqLevels\)\?\.split === 'groups' \? `\$\{t\("Under Everyone \| Profitable the Depth pane draws everyone's levels\."\)\} `/);
+  assert.match(depth, /liveSplit\(this\.store\.state\.liqLevels\)\?\.split === 'groups' \? `\$\{t\("Under Everyone \| \+PnL the Depth pane draws everyone's levels\."\)\} `/);
 });
 
-test('the Depth pane draws every choice as with Split None; under Everyone | Profitable as Everyone, the saved Traders never drawn (owner, 2026-11-20)', () => {
+test('the Depth pane draws every choice as with Split None; under Everyone | +PnL as Everyone, the saved Traders never drawn (owner, 2026-11-20)', () => {
   const KINDS = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1]] as const;
   for (const [l, st, tk] of KINDS) for (const group of ['all', 'profitable'] as const) for (const split of LIQ_SPLITS) {
     const s = readLiqLevels({ liq: !!l, stops: !!st, takes: !!tk, group, split }), name = `${l}${st}${tk} ${group} ${split}`;
     const inForce = effectiveSplit(s, true), none = { ...s, split: 'none' as const };
-    // The one-line rule: Depth(state) = Depth(the same state with Split None), Everyone | Profitable (in force) with Traders as Everyone.
+    // The one-line rule: Depth(state) = Depth(the same state with Split None), Everyone | +PnL (in force) with Traders as Everyone.
     assert.deepEqual(depthView(s, true), depthView(inForce === 'groups' ? { ...none, group: 'all' } : none, true), name);
     assert.deepEqual(depthView(s, true), { liq: !!l, stops: !!st, takes: !!tk, group: inForce === 'groups' ? 'all' : group }, name);
     assert.deepEqual(depthView(s, false), FREE_VIEW, `${name}: without Plus the free view`);
   }
   // Liquidations | Stops: Liq + stops of the chosen traders (until 2026-11-20 it drew the left column, liquidations alone).
   assert.equal(curveOf(depthView(readLiqLevels({ liq: true, stops: true, takes: true, group: 'profitable', split: 'kinds' }), true)), 'both');
-  // A split kept but not in force (take profits alone under Everyone | Profitable) draws as none: the saved Traders count there.
+  // A split kept but not in force (take profits alone under Everyone | +PnL) draws as none: the saved Traders count there.
   assert.deepEqual(depthView(readLiqLevels({ liq: false, stops: false, takes: true, group: 'profitable', split: 'groups' }), true), { liq: false, stops: false, takes: true, group: 'profitable' });
   // The column and the stripe still split: their one series is the left set.
   assert.deepEqual(effectiveView(readLiqLevels({ liq: true, stops: true, split: 'kinds' }), true), { liq: true, stops: false, takes: false, group: 'all' });
@@ -237,14 +269,14 @@ test('the levels control keeps a split chosen while a kind it needs is off, says
     assert.deepEqual(m.writes.at(-1), { stops: false }); assert.equal(m.get().split, 'kinds', 'kept');
     assert.deepEqual(opts.map(o => o.getAttribute('aria-checked')), ['false', 'true', 'false'], 'shown chosen, as where the map is too narrow');
     assert.equal(note.hidden, false); assert.equal(note.textContent, 'Liquidations | Stops comes back when liquidations and stops are both on.');
-    assert.match(root.querySelector('.lv-sum')!.textContent, /^Curve: Liquidations · Profitable$/, 'the live line says what is drawn: one column');
+    assert.match(root.querySelector('.lv-sum')!.textContent, /^Curve: Liquidations · \+PnL$/, 'the live line says what is drawn: one column');
     row('stops').click();
-    assert.equal(note.hidden, true); assert.match(root.querySelector('.lv-sum')!.textContent, /Left: Liquidations · Right: Stops · Profitable/, 'on again: split again');
-    // Everyone | Profitable, then take profits alone: kept, Traders back (the drawn choice uses them), the note says what brings it back.
+    assert.equal(note.hidden, true); assert.match(root.querySelector('.lv-sum')!.textContent, /Left: Liquidations · Right: Stops · \+PnL/, 'on again: split again');
+    // Everyone | +PnL, then take profits alone: kept, Traders back (the drawn choice uses them), the note says what brings it back.
     opts[2]!.click(); row('takes').click(); row('liq').click(); row('stops').click();
     assert.deepEqual([m.get().liq, m.get().stops, m.get().takes, m.get().split], [false, false, true, 'groups']);
     assert.equal(traders.hidden, false, 'nothing is split: Traders has its say');
-    assert.equal(note.textContent, 'Everyone | Profitable comes back when liquidations or stops are on.');
+    assert.equal(note.textContent, 'Everyone | +PnL comes back when liquidations or stops are on.');
     row('liq').click();
     assert.equal(traders.hidden, true); assert.equal(note.hidden, true, 'liquidations on: split again');
     c.destroy();
