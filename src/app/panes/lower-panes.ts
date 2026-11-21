@@ -1884,7 +1884,8 @@ export class BarStatsPane extends TimePane {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state = this.store.state;
     const tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000, defs = enabledStats(state.barStats), options = state.barStatOptions;
     const readout = this.head.querySelector('.readout'), data = this.heat.footprintData, daily = options.cvdFrom === 'day';
-    // Aggregated, the rows count every market the footprint adds together; open interest stays the OI pane's one market (as its row's tip says).
+    // Aggregated, the rows count every market the footprint adds together; open interest stays the OI pane's one market (as its row's tip says),
+    // and the liquidations count the perpetuals whatever the Spot / Perp filter (`liquidationMarkets`, below).
     const markets = this.heat.footprintMarkets(state), stats = daily
       ? tn(defs.length, "{n} stat · cvd from each day's start", "{n} stats · cvd from each day's start")
       : tn(defs.length, '{n} stat · cvd sums the bars loaded for the view', '{n} stats · cvd sums the bars loaded for the view');
@@ -1908,15 +1909,19 @@ export class BarStatsPane extends TimePane {
     const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(now / tfMs) * tfMs : Infinity);
     // The exchange's own candles (Binance's): the candle delta and the fills read them.
     const taker = defs.some(def => def.id === 'takerDelta' || def.id === 'fills' || def.id === 'avgFill') ? this.heat.takerRows(state, tfMs, times[0]!) : null;
-    // Liquidations of the markets counted, a UTC day per answer, over the days of the table's candles (none after now). A candle before the
-    // record reaches is not known: the source keeps a week (a page's own engine a day), and only since the recording started. The edge is
-    // taken to the next whole minute (a candle half expired is not known either), which also keeps it from changing on every frame.
+    // Liquidations of the perpetuals counted, whatever the Spot / Perp filter (`liquidationMarkets`, the Flow history's list too: the two share
+    // the loader), a UTC day per answer, over the days of the table's candles (none after now). A candle before the record reaches is not known:
+    // the source keeps a week (a page's own engine a day), and only since the recording started. The edge is taken to the next whole minute (a
+    // candle half expired is not known either), which also keeps it from changing on every frame.
     const retention = this.hub.source.kind === 'browser' ? BROWSER_RETENTION_MS : LIQUIDATION_RETENTION_MS;
     const liqTo = Math.min(times[times.length - 1]! + tfMs, Date.now()), liqCover = Math.max(Math.ceil((Date.now() - retention) / 60_000) * 60_000, this.hub.recordedSince > 0 ? this.hub.recordedSince : 0);
+    // A list without a perpetual (the chart market or chosen markets all spot, or every perpetual venue switched off) has none to count: its
+    // cells stay empty rather than read 0.
+    const liqMarkets = this.heat.liquidationMarkets(state), liqPerps = liqMarkets.some(id => kindOf(state.markets, id) !== 'spot');
     let liquidations: StatInput['liquidations'];
-    if (this.hub.source.liquidations && defs.some(def => def.id === 'liq' || def.id === 'liqNet') && markets.length) {
-      this.liqDays.ensure('bars', markets.join(','), Math.max(times[0]!, liqCover), liqTo);
-      liquidations = this.#liquidationsFor(markets, times, tfMs, liqCover);
+    if (this.hub.source.liquidations && defs.some(def => def.id === 'liq' || def.id === 'liqNet') && liqPerps) {
+      this.liqDays.ensure('bars', liqMarkets.join(','), Math.max(times[0]!, liqCover), liqTo);
+      liquidations = this.#liquidationsFor(liqMarkets, times, tfMs, liqCover);
     }
     const restart = daily ? resetKeys(times, 'day', zone) : undefined;
     // Worked out again only when what it is worked out from changes: a pointer move redraws from what is held. The clock counts by the minute
