@@ -382,7 +382,7 @@ html[data-layout="phone-landscape"] main[data-tab="liq"] > .pane.liq { display: 
 .liq-balance .long { background: linear-gradient(90deg, var(--candle-down), color-mix(in srgb, var(--candle-down) 45%, transparent)); box-shadow: 0 0 10px color-mix(in srgb, var(--candle-down) 45%, transparent); }
 .liq-balance .short { background: linear-gradient(90deg, color-mix(in srgb, var(--candle-up) 45%, transparent), var(--candle-up)); box-shadow: 0 0 10px color-mix(in srgb, var(--candle-up) 45%, transparent); }
 .liq-meta { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.liq-ratio { font-weight: 700; white-space: nowrap; }
+.liq-ratio { font-weight: 700; white-space: nowrap; color: var(--text); }
 .liq-ratio.long { color: var(--candle-down); }
 .liq-ratio.short { color: var(--candle-up); }
 .pane.liq .liq-range { display: flex; margin: 0 10px 8px; }
@@ -559,7 +559,8 @@ html[data-layout^="phone"] .pane-head.tuned > strong { align-self: center; }
 .sheet .tune-body > button { width: 100%; margin-top: 8px; }
 .sheet .tune-body > [hidden] { display: none; }
 
-/* The Liquidity Tracker's header: the tab says "LT", so the title goes, and the half-lives are chips, one tap each. */
+/* The Liquidity Tracker's header: the half-lives are chips, one tap each, and the title goes (a rule from when a tab said "LT": it has had
+   none since 2026-11-01, when Liq took its place). */
 .lt-halves { display: none; }
 html[data-layout^="phone"] .pane.lt .pane-head .lt-halves { display: flex; flex: 1 1 0; min-width: 0; margin: 0; }
 html[data-layout^="phone"] .pane.lt .pane-head > strong { display: none; }

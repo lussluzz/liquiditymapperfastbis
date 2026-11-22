@@ -165,13 +165,15 @@ async function main(): Promise<void> {
   setTourDemo({ plotRect: () => heat.plotRect(), zoom: (press, at) => heat.demoZoom(press, at), end: () => heat.endDemo() });
   // Liquidations by UTC day of the perpetuals the Bar stats and the Flow history count (`liquidationMarkets`): one loader for both (liq-days.ts).
   const liqDays = new LiquidationDays(hub);
+  // The Flow history's warm-up holds its liquidation days before it opens (HeatPane `#warmStep`, size-history/warm.ts).
+  heat.liquidationDays = liqDays;
   const bars = new BarStatsPane(chart, store, heat.view, heat, hub, liqDays);
   // Flow history: liquidations, open interest's change and market orders by size per candle, the unusual ones standing out (Karl, 2026-11-20).
   const sizes = new SizeHistoryPane(chart, store, heat.view, heat, hub, liqDays);
   const depth = new DepthPane(chart, store, heat.view, hub);
   // NL/NS, worked out once and read by the OI pane (its bars by who opened), the Delta pane and the Funding pane.
   const nlns = new NlnsSource(hub);
-  const oi = new OiPane(chart, store, heat.view, hub.flow, nlns);
+  const oi = new OiPane(chart, store, heat.view, hub.flow, nlns, t0 => hub.oiReach(t0));
   const delta = new DeltaPane(chart, store, heat.view, hub, nlns);
   heat.divergences = () => delta.divergences; delta.onDivergences = () => heat.invalidate();
   const ls = new LsPane(chart, store, heat.view, hub);
@@ -265,7 +267,6 @@ async function main(): Promise<void> {
   arrange.canMaximize = () => !store.state.rangeTool && !store.state.vwapAnchoring && !store.state.profileAnchoring && !heat.draw?.placing;
   heat.onMaximize = () => arrange.toggleMax('heat');
   toolbar.onMapMax = () => { arrange.toggleMax('heat'); };
-  toolbar.onShowMap = () => dock.show('map');
   const syncMapMax = (): void => toolbar.setMapMax(arrange.canMax('heat'), arrange.maximized === 'heat');
   // The panes under the map that a maximized pane covers draw nothing meanwhile and put their cards away (TimePane.cover). Delta stays
   // drawn under a maximized map: its drawing works out the CVD divergences the map draws (review r2), and a finger's pin on it is let go
@@ -306,7 +307,8 @@ async function main(): Promise<void> {
   // A drag in the OI pane sums up its own bars (range/oi-lines.ts): what it drew, and the liquidations the map holds on its markets.
   const oiSummary = new OiRangeSummary();
   range.useProvider({
-    pane: 'oi', title: () => t('Open interest'), shown: () => store.state.show.oi, barMs: () => TIMEFRAMES[store.state.timeframe] ?? 3_600_000,
+    // Its bars: the map's longer candles where the pane draws them zoomed out (oi-group.ts), so a drag holds whole drawn candles.
+    pane: 'oi', title: () => t('Open interest'), shown: () => store.state.show.oi, barMs: () => oi.rangeHeld?.tfMs ?? TIMEFRAMES[store.state.timeframe] ?? 3_600_000,
     lines: (sel, shown) => oiSummary.lines(sel, oi.rangeHeld, shown, store.state.liquidations.on ? { items: hub.liquidations.items, version: hub.liquidations.version, min: scaledUsd(store.state.liquidations.minUsd), held: hub.liquidationsHeld } : null, oiHeldKey(store.state), pageNow(), store.state.timeZone),
   });
   // A drag in the Bar stats pane sums up its chosen statistics over the candles (range/bars-lines.ts), each by its own rule.
@@ -537,11 +539,12 @@ async function main(): Promise<void> {
     // sizes) would undo part of the restore. Nothing but memory is lost by starting again, so it reloads, and opens with the restored setup.
     if (e.key === RESTORED_KEY) { store.stopSaving(); window.location.reload(); return; }
     // Another tab made, changed or deleted a theme of one's own: known here too, and drawn again where it is the one on the screen; a deleted one
-    // leaves the page, and the light-or-dark key, for the built-in themes (as Delete does in the tab it was deleted in).
+    // leaves the page for the built-in Light or Dark of its kind, as Delete does in the tab it was deleted in (docs/guides/your-setup.md), and the
+    // light-or-dark key forgets it.
     if (e.key === CUSTOM_THEMES_KEY && store.saving) {
       registerCustomThemes(loadCustomThemes());
       const s = store.state, alive = resolveThemeId(s.theme) === s.theme, slots = slotsFor(s.themeSlots, s.theme);
-      const theme = alive ? s.theme : s.themeSlots.dark === s.theme ? slots.dark : slots.light;
+      const theme = alive ? s.theme : s.themeSlots.dark === s.theme ? 'dark' : 'light';
       if (s.theme.startsWith('custom-') || slots.light !== s.themeSlots.light || slots.dark !== s.themeSlots.dark) store.set({ theme, themeSlots: slotsFor(slots, theme) });
     }
   });

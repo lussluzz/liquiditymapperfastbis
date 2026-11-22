@@ -11,8 +11,6 @@ import { kindOf } from '../scope.ts';
 import { oiChangeByTime, oiPartsUntil, oiUsdChangeByTime, type OiPart } from '../oi-change.ts';
 import { wrapText } from '../text-fit.ts';
 import { addTune } from '../pane-tune.ts';
-import { LIQUIDATION_RETENTION_MS } from '../../shared/liquidations.ts';
-import { BROWSER_RETENTION_MS } from '../../shared/recorder.ts';
 import { BAR_CUT_H, BAR_CUT_PX, cutGap } from '../bar-scale.ts';
 import { colourRamp, RAMP_STEPS } from '../traded/emphasis.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
@@ -21,10 +19,10 @@ import { readAt } from './pane-cards.ts';
 import { TimePane, oiSourceText, setText, tableSigned, tableText } from './lower-panes.ts';
 import { AXIS_W, leftGutter, type HeatPane } from './heat-pane.ts';
 import { PaneTable, ratioCell, tableInk, tableLines, type TableCell, type TableRoom } from './pane-table.ts';
-import type { LiquidationDays } from '../liq-days.ts';
+import { liquidationCover, type LiquidationDays } from '../liq-days.ts';
 import { el } from '../dom.ts';
 import type { Palette } from '../theme.ts';
-import { alphaOf, buildHistory, cardLines, emphasis, heightOf, preRollMs, rowCap, shareDot, type HistoryModel, type HistoryRow } from '../size-history/model.ts';
+import { alphaOf, buildHistory, cardLines, emphasis, heightOf, historyLoading, preRollMs, rowCap, shareDot, type HistoryModel, type HistoryRow } from '../size-history/model.ts';
 
 /** The gap between the two rows of context (liquidations, open interest) and the six size rows, in px. */
 const GROUP_GAP = 8;
@@ -56,7 +54,8 @@ export function sizeTableRows(model: Pick<HistoryModel, 'rows' | 'sides' | 'tota
  * market orders in six size bands, one row each on the map's time axis, with the most unusual amounts standing out (size-history/model.ts).
  * Its size rows count the markets the footprint and the Bar stats count, and read the footprint's bars (one load for the three, from the Highlights'
  * length before the view, at least 36 candles and six hours, while this pane shows); its liquidations are the Bar stats' (one loader, liq-days.ts:
- * the perpetuals whatever the Spot / Perp filter) and its open interest the OI pane's. Switched on from the flow column's settings, the Bar stats' settings and, on a phone, Settings; never from the top bar.
+ * the perpetuals whatever the Spot / Perp filter) and its open interest the OI pane's. Switched on from its button in the top bar's Panels deck (toolbar.ts
+ * `PANE_TOGGLES`, which a phone's or tablet's Settings lists too), the flow column's settings and the Bar stats' settings.
  */
 export class SizeHistoryPane extends TimePane {
   /** Rows, not values: the pointer's height says which row, so it takes no horizontal line. */
@@ -159,14 +158,17 @@ export class SizeHistoryPane extends TimePane {
     for (const c of state.candles) if (near(c[0])) starts.add(c[0]);
     for (const b of data.bars.values()) if (near(b.t)) starts.add(b.t);
     const times = [...starts].sort((a, b) => a - b);
-    if (!times.length || !times.some(s => data.bars.has(s))) { this.#message(t('Flow history appears once market orders are recorded for these candles.')); this.#held = null; return; }
+    // A question still out for candles the bars held were not answered for (the first look, or a pan into the past): loading, not "nothing recorded".
+    if (!times.length || !times.some(s => data.bars.has(s))) {
+      this.#message(historyLoading(data.busy, times, tfMs, (from, to) => data.covers(from, to)) ? t('Loading…') : t('Flow history appears once market orders are recorded for these candles.'));
+      this.#held = null; return;
+    }
     // Liquidations and open interest are the perpetuals': they count with the Spot filter on too, the size rows counting only its spot markets
     // (`liquidationMarkets`; Karl, 2026-11-21: they "don't show up"). Only a list without a perpetual (the chart market or chosen markets all
     // spot, or every perpetual venue switched off) leaves the two rows without values, and their cards say why. Liquidations a UTC day per answer (the shared loader), over the candles held; a candle
     // before the record reaches (a week on a server, a day in a page's own engine, and only since the recording started) is not known.
     const liqMarkets = this.heat.liquidationMarkets(state), perps = liqMarkets.some(id => kindOf(state.markets, id) !== 'spot');
-    const retention = this.hub.source.kind === 'browser' ? BROWSER_RETENTION_MS : LIQUIDATION_RETENTION_MS;
-    const liqTo = Math.min(times[times.length - 1]! + tfMs, Date.now()), liqCover = Math.max(Math.ceil((Date.now() - retention) / 60_000) * 60_000, this.hub.recordedSince > 0 ? this.hub.recordedSince : 0);
+    const liqTo = Math.min(times[times.length - 1]! + tfMs, Date.now()), liqCover = liquidationCover(this.hub.source.kind, this.hub.recordedSince, Date.now());
     let liquidations: StatInput['liquidations'];
     if (this.hub.source.liquidations && perps) { this.liqDays.ensure('sizes', liqMarkets.join(','), Math.max(times[0]!, liqCover), liqTo); liquidations = this.#liquidations(liqMarkets, times, tfMs, liqCover); }
     const parts = oiPartsUntil(state.oiParts, tfMs, live ? Infinity : Math.floor(now / tfMs) * tfMs);
@@ -252,9 +254,9 @@ export class SizeHistoryPane extends TimePane {
     // does not (how unusual it is, its baseline, how the size rows stand together): a table that holds all of it takes the card's place, as on every
     // pane with one; beside a table that cannot, the card stays.
     if (state.sizesTable) {
-      const read = hoverIdx >= 0 ? hoverIdx : last, room: TableRoom = { w: this.w, h: ph, plotW: pw, axisW: AXIS_W, pointing: this.pointer !== null };
+      const read = hoverIdx >= 0 ? hoverIdx : last, room: TableRoom = { w: this.w, h: ph, plotW: pw, axisW: AXIS_W, pointing: this.pointer !== null, rest: !hv };
       const foot = `${!hv && read === times.length - 1 ? `${t('newest')} ${clock(times[read]!)}` : clock(times[read]!, true)} USD`;
-      const placed = this.#table.draw(ctx, p, room, { heads: ['', t('Buys'), t('Sells'), 'Δ', t('Share'), '×'], minCols: 4, plateMin: 5, cardCols: 5, focus: card ? hoverRow : -1, foot, rows: sizeTableRows(model, read, p), lines: tableLines(card) });
+      const placed = this.#table.draw(ctx, p, room, { heads: ['', t('Buys'), t('Sells'), 'Δ', t('Share'), '×'], minCols: 4, plateMin: 5, cardCols: 5, focus: card ? hoverRow : -1, foot, rows: sizeTableRows(model, read, p), lines: tableLines(card), restKey: `${state.marketId}\u0001${state.timeframe}` });
       if (placed?.complete) this.#lines = null;
     }
   }
