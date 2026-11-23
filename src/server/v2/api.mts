@@ -815,6 +815,71 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const to = num(url.searchParams.get('to'), Date.now() + 60_000), from = Math.max(num(url.searchParams.get('from'), to - 24 * 3_600_000), to - MAX_FLOW_MINUTES_SPAN_MS);
     sendBinary(res, Buffer.from(encodeFlowMinutes(flow.minutes(ids, from, to))));
   };
+  /**
+   * Everything the bot agent needs as dry numbers, in one request: per-step cumulative delta (CVD), flow-vwap, a CVD burst
+   * (src/app/cvd/burst.ts' maths: the newest windowSec against the non-overlapping windows of the baseline before it, z >= k or a flat
+   * baseline with a delta worth minUsd), and a price-vs-CVD divergence over the last `div` steps (price higher high while CVD lower
+   * high = bearish, the mirror = bullish). Rounded on the way out: an agent reads this, it does not re-derive it.
+   */
+  const indicatorsRoute = (url: URL, res: ServerResponse) => {
+    const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean).slice(0, MAX_FLOW_INSTRUMENTS);
+    if (!ids.length) return sendJson(res, { error: 'inst must name 1 to ' + MAX_FLOW_INSTRUMENTS + ' instruments' }, 400);
+    const step = Math.max(60_000, num(url.searchParams.get('step'), 60_000));
+    const to = num(url.searchParams.get('to'), Date.now()), from = Math.max(num(url.searchParams.get('from'), to - 6 * 3_600_000), to - MAX_FLOW_MINUTES_SPAN_MS);
+    const div = Math.max(20, Math.min(480, num(url.searchParams.get('div'), 60)));
+    const now = Date.now();
+    // The burst's baseline reaches 30 minutes behind `from`; the frame covers both.
+    const frame = flow.frame(ids, Math.min(from, now - 1_900_000), to);
+    const windowSec = 10, baselineSec = 1_800, k = 4, minUsd = 1_000_000;
+    const out: Record<string, unknown> = {};
+    for (const s of frame.instruments) {
+      const n = s.buy.length, stepSec = step / 1000;
+      const secDelta = (a: number, b: number) => { let d = 0; for (let i = Math.max(0, a); i <= Math.min(n - 1, b); i++) d += s.buy[i]! - s.sell[i]!; return d; };
+      // One bucket per `step`, summed into a running total.
+      const t: number[] = [], cvd: number[] = [], vwap: number[] = [];
+      let run = 0, lastB = -1, vol = 0, notional = 0;
+      for (let i = 0; i < n; i++) {
+        const sec = s.t0 / 1000 + i, b = Math.floor(sec / stepSec);
+        const gross = s.buy[i]! + s.sell[i]!, px = s.px?.[i];
+        if (gross > 0 && px) { vol += gross; notional += gross * px; }
+        run += s.buy[i]! - s.sell[i]!;
+        if (b !== lastB) { if (lastB >= 0) { t.push((lastB + 1) * step); cvd.push(Math.round(run - (s.buy[i]! - s.sell[i]!))); vwap.push(vol > 0 ? +(notional / vol).toFixed(1) : 0); } lastB = b; vol = 0; notional = 0; }
+      }
+      if (lastB >= 0) { t.push((lastB + 1) * step); cvd.push(Math.round(run)); vwap.push(vol > 0 ? +(notional / vol).toFixed(1) : 0); }
+      // Burst: newest `windowSec` against the `baselineSec` before it (see burst.ts for the judgement).
+      const nowSec = Math.floor(now / 1000), end = Math.min(n - 1, Math.floor((nowSec - s.t0 / 1000)));
+      const d0 = secDelta(end - windowSec + 1, end);
+      let burst: { delta: number; z: number } | null = null;
+      if (end * 1 + s.t0 / 1000 >= nowSec - windowSec - 5 && Math.abs(d0) >= minUsd) {
+        let sum = 0, sumSq = 0, cnt = 0;
+        for (let i = 1; i <= baselineSec / windowSec; i++) {
+          const e = end - i * windowSec, st = e - windowSec + 1;
+          if (st < 0) break;
+          const d = secDelta(st, e); sum += d; sumSq += d * d; cnt++;
+        }
+        if (cnt >= 12) {
+          const mean = sum / cnt, sd = Math.sqrt(Math.max(0, sumSq / cnt - mean * mean)), residual = d0 - mean;
+          const flat = sd <= Math.abs(mean) * 1e-9;
+          const z = flat ? (Math.abs(residual) >= minUsd ? Math.sign(residual) * Infinity : 0) : residual / sd;
+          if (Math.abs(z) >= k) burst = { delta: Math.round(d0), z: Number.isFinite(z) ? +z.toFixed(2) : (z > 0 ? 999 : -999) };
+        }
+      }
+      // Divergence over the last `div` steps: price higher high while CVD lower high (bearish), the mirror (bullish).
+      let divergence: { bias: string; price: string; cvd: string } | null = null;
+      const m = Math.min(t.length, div);
+      if (m >= 20) {
+        const p = vwap.slice(-m), c = cvd.slice(-m), h = Math.floor(m / 2);
+        const pMax1 = Math.max(...p.slice(0, h)), pMax2 = Math.max(...p.slice(h)), pMin1 = Math.min(...p.slice(0, h)), pMin2 = Math.min(...p.slice(h));
+        const cMax1 = Math.max(...c.slice(0, h)), cMax2 = Math.max(...c.slice(h)), cMin1 = Math.min(...c.slice(0, h)), cMin2 = Math.min(...c.slice(h));
+        const priceHH = pMax2 > pMax1, priceLL = pMin2 < pMin1, cvdHH = cMax2 > cMax1, cvdLL = cMin2 < cMin1;
+        if (priceHH && !cvdHH) divergence = { bias: 'bearish', price: 'HH', cvd: cvd2nd(cMax1, cMax2, 'LH') };
+        else if (priceLL && !cvdLL) divergence = { bias: 'bullish', price: 'LL', cvd: cvd2nd(cMin1, cMin2, 'HL') };
+      }
+      out[s.id] = { t, cvd, vwap, burst, divergence };
+    }
+    function cvd2nd(a: number, b: number, label: string) { return b >= a ? label.replace('LH', 'flatH').replace('HL', 'flatL') : label; }
+    sendJson(res, { asOf: now, step, div, instruments: out });
+  };
   const venuesRoute = (res: ServerResponse) => sendJson(res, { venues: extra.list() });
   const venuesSet = (req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = []; let size = 0;
@@ -881,6 +946,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/liquidations': liquidationsRoute(url, res); return true;
           case '/api/v2/flow': flowRoute(url, res); return true;
           case '/api/v2/flow-minutes': flowMinutesRoute(url, res); return true;
+          case '/api/v2/indicators': indicatorsRoute(url, res); return true;
           case '/api/v2/sizes': sizesRoute(url, res); return true;
           case '/api/v2/profile': profileRoute(url, res); return true;
           case '/api/v2/oi-profile': oiProfileRoute(url, res); return true;
