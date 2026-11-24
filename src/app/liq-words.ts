@@ -102,8 +102,8 @@ export const takesLeftOut = (): string => t('Take profits not included');
  * false: at 11 px the column's 128 px hold "Liquidations" but not "Liquidations · +PnL traders"; a name); that the take profits are not in
  * the curve while they show (a note); that the group's orders are not on the server (a warning).
  */
-export function columnNotes(view: LiqView, groupOnButton: boolean, takesShown: boolean, absent = false, narrow: string | null = null): HeadLine[] {
-  return [...(narrow ? [{ text: narrow, role: 'note' as const }] : []), ...(view.group !== 'all' && !groupOnButton ? [{ text: groupTitle(view.group), role: 'name' as const }] : []),
+export function columnNotes(view: LiqView, groupOnButton: boolean, takesShown: boolean, absent = false, narrow: string | null = null, old = false): HeadLine[] {
+  return [...(old ? [{ text: liqOldWords(), role: 'warn' as const }] : []), ...(narrow ? [{ text: narrow, role: 'note' as const }] : []), ...(view.group !== 'all' && !groupOnButton ? [{ text: groupTitle(view.group), role: 'name' as const }] : []),
     ...(takesShown ? [{ text: takesLeftOut(), role: 'note' as const }] : []), ...(absent ? [{ text: ordersAbsent(), role: 'warn' as const }] : [])];
 }
 /**
@@ -111,13 +111,16 @@ export function columnNotes(view: LiqView, groupOnButton: boolean, takesShown: b
  * of the +PnL traders) or what both add up (everyone beside the +PnL traders), each a name; that the take profits are not in the curve (a
  * note); that a group's orders are not on the server (a warning).
  */
-export function splitNotes(pair: LiqPair, takesShown: boolean, absent: boolean): HeadLine[] {
-  return [...(pair.split === 'kinds' && pair.left.group !== 'all' ? [{ text: groupTitle(pair.left.group), role: 'name' as const }] : []),
+export function splitNotes(pair: LiqPair, takesShown: boolean, absent: boolean, old = false): HeadLine[] {
+  return [...(old ? [{ text: liqOldWords(), role: 'warn' as const }] : []), ...(pair.split === 'kinds' && pair.left.group !== 'all' ? [{ text: groupTitle(pair.left.group), role: 'name' as const }] : []),
     ...(pair.split === 'groups' ? [{ text: kindTitle(curveOf(pair.left)), role: 'name' as const }] : []),
     ...(takesShown ? [{ text: takesLeftOut(), role: 'note' as const }] : []), ...(absent ? [{ text: ordersAbsent(), role: 'warn' as const }] : [])];
 }
 /** What the curve adds up and leaves out, for a newcomer: in the levels control, the help and the column's tip while take profits show. */
 export const curveSentence = (): string => t('The curve totals the liquidations and stops that are on. Take profits are dashed bars beside it, or, on alone, a dashed curve of their own.');
+
+/** What the column's heading and the note say of liquidations drawn though out of date (`LiqLevelsSource.liqOld`). */
+export const liqOldWords = (): string => t('Out of date: no newer snapshot yet');
 
 /**
  * Why nothing of the view is drawn (the column, the Liq tab), or '' when it is: loading, not read, out of date, or not in the snapshot (no
@@ -147,7 +150,7 @@ export const ofGroup = (who: string, what: string): string => t('{who}: {what}',
  * stood, the take profits' state (beside the curve), and whose data it is. `who` names whose orders an "as of" is (`ofGroup`), where
  * another group's lane stands beside these (everyone beside the profitable traders); without it the note is as it always was.
  */
-export function liqNote(src: Pick<LiqLevelsSource, 'view' | 'takesState' | 'asOfs' | 'ordersOld' | 'ordersAbsent'>, view: LiqView, at: number, who?: string): string {
+export function liqNote(src: Pick<LiqLevelsSource, 'view' | 'takesState' | 'asOfs' | 'ordersOld' | 'ordersAbsent'> & { liqOld?: () => boolean }, view: LiqView, at: number, who?: string): string {
   const named = (part: string): string => who ? ofGroup(who, part) : part;
   const time = clock(at), group = view.group, curve = curveOf(view), beside = takesBeside(view);
   const mine = group === 'profitable';
@@ -159,6 +162,8 @@ export function liqNote(src: Pick<LiqLevelsSource, 'view' | 'takesState' | 'asOf
       : group === 'profitable' ? t('+PnL traders\' liquidation levels at {time} · Powered by HyperTracker', { time })
         : t('Hyperliquid liquidation levels at {time} · Powered by HyperTracker', { time });
   const parts = [head], orders = src.asOfs().orders, absent = src.ordersAbsent();
+  // Liquidations older than OLD_MS are drawn still: said so, right after when they stood.
+  if (view.liq && src.liqOld?.()) parts.push(named(liqOldWords()));
   // The profitable traders' orders the view asks for are not there: said, and nothing drawn for them.
   if (absent) parts.push(ordersAbsent());
   // The orders come from the newest snapshot an order file was read with: said when that is well behind the liquidations (or old).
@@ -180,11 +185,13 @@ export function liqNote(src: Pick<LiqLevelsSource, 'view' | 'takesState' | 'asOf
  * times as its note states them, null where it states none) or their stops are old (Sol, review 2026-11-19: their orders hours old drew with
  * no word of it). Nothing where both groups' times agree: the left part says them.
  */
-export function groupNoteParts(right: Pick<LiqSet, 'state' | 'view' | 'levels' | 'missing' | 'blame' | 'asOfs' | 'ordersOld' | 'ordersAbsent'>, left: { liq: number | null; orders: number | null }): string[] {
+export function groupNoteParts(right: Pick<LiqSet, 'state' | 'view' | 'levels' | 'missing' | 'blame' | 'asOfs' | 'ordersOld' | 'ordersAbsent' | 'liqOld'>, left: { liq: number | null; orders: number | null }): string[] {
   const named = (what: string): string => ofGroup(groupTitle(right.view.group), what), absent = right.ordersAbsent(), parts = absent ? [ordersAbsent()] : [];
   if (!right.levels || right.state !== 'ready') return absent ? parts : [...parts, named(liqWhy(right, right.asOfs().liq) || t('Liquidation levels are loading.'))];
   const at = right.asOfs();
   if (at.liq !== null && at.liq !== left.liq) parts.push(named(t('positions as of {time}', { time: clock(at.liq) })));
+  // Their liquidations out of date are said by their own name, as the left part says its own (`liqNote`).
+  if (right.view.liq && right.liqOld()) parts.push(named(liqOldWords()));
   if (at.orders !== null && (right.ordersOld() || at.orders !== left.orders)) parts.push(named(t('stops as of {time}', { time: clock(at.orders) })));
   return parts;
 }
