@@ -258,7 +258,7 @@ async function main(): Promise<void> {
     { id: 'script', root: script.root, height: 220, min: 60, head: script.header, closeLabel: t('Switch off the scripts in this panel (they stay in Scripts…)') },
   ];
   const arrange = new Layout(main, chart, { left: flowCol, right: side }, strip, [
-    { id: 'cvd', root: cvd.root, head: cvd.controls, title: t('Flow'), views: [{ id: 'flow', title: t('Flow') }, { id: 'trades', title: t('Tape') }] },
+    { id: 'cvd', root: cvd.root, head: cvd.controls, title: t('Flow'), views: [{ id: 'flow', title: t('Flow') }, { id: 'trades', title: t('Tape') }, { id: 'sizes', title: t('Sizes') }] },
     { id: 'book', root: ladder.root, head: ladder.controls, title: t('Order Book') },
   ]);
   // What the person does to the layout (layouts/actions.ts): the layouts panel, a pane's close button and the edge tab of a closed side pane (the Panels row in the top bar flips the same switches).
@@ -267,7 +267,7 @@ async function main(): Promise<void> {
     env: () => ({ width: window.innerWidth, height: chart.clientHeight || Math.max(400, window.innerHeight - 200), held: scriptRows(store.state) ? ['script' as const] : [] }),
   });
   arrange.onClose = id => { if (id === 'script') script.switchOffPane(); else layouts.hide(id, arrange.title(id)); }; arrange.onOpen = id => layouts.setPane(id, true);
-  arrange.onView = (id, view) => { if (id === 'cvd' && (view === 'flow' || view === 'trades') && store.state.flowView !== view) store.set({ flowView: view }); };
+  arrange.onView = (id, view) => { if (id === 'cvd' && (view === 'flow' || view === 'trades' || view === 'sizes') && store.state.flowView !== view) store.set({ flowView: view }); };
   // Trades reads the tape ring (blocks and each order), the per-second flow the Flow lines hold (any size before the tape) and the recording's
   // large orders (the browser's memory or the local server: free, never an exchange); a click takes the map to an order or a block's time.
   cvd.trades.ring = () => hub.tape;
@@ -706,7 +706,7 @@ async function main(): Promise<void> {
     if (changed.has('depthBands') || changed.has('liqBands')) depth.settingsChanged();
     // What the levels show (liquidations, stops, both; whose; take profits) is the Depth pane's Liquidation levels too.
     if (changed.has('depthSource') || changed.has('liqLevels')) depth.refresh();
-    if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('keyLevels') || changed.has('traded') || changed.has('vwap') || changed.has('tpo') || changed.has('vwapAnchoring') || changed.has('profileAnchoring') || changed.has('footprint') || changed.has('customMarkets') || changed.has('barStatOptions')) heat.invalidate();
+    if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('keyLevels') || changed.has('traded') || changed.has('vwap') || changed.has('tpo') || changed.has('vwapAnchoring') || changed.has('profileAnchoring') || changed.has('footprint') || changed.has('customMarkets') || changed.has('barStatOptions') || changed.has('barStats')) heat.invalidate();
     // Placing a VWAP anchor, selecting a Range and placing a drawing all take the next press on the map: arming one ends the others.
     if (changed.has('rangeTool') && state.rangeTool && state.vwapAnchoring) store.set({ vwapAnchoring: false });
     // Placing ended, however it ended (placed, Esc, Cancel, another tool): the anchor being moved, if any, is no longer.
@@ -778,11 +778,14 @@ async function main(): Promise<void> {
     if (['show', 'timeframe', 'oiFine', 'range', 'replay'].some(k => changed.has(k as never))) funding.invalidate();
     // The order book's row under the pointer: the map and the flow column's price strip draw its price.
     if (changed.has('bookHover')) { heat.invalidateHover(); cvd.syncBookHover(); }
+    // The Depth band under the pointer in a Depth pane: the map shades where its money lies (depth-zone.ts).
+    if (changed.has('depthHover')) heat.invalidateHover();
     if (changed.has('delta') || changed.has('deltaTable')) delta.settingsChanged();
     if ((changed.has('oi') || changed.has('oiParts')) && topShown(state)) heat.invalidate();
     if (changed.has('marketId')) candle.marketChanged();
     if (['levels', 'mark', 'disabledVenues', 'scope', 'markets', 'footprint', 'customMarkets', 'replay', 'bookGone', 'show'].some(k => changed.has(k as never))) candle.invalidate();
     if (changed.has('lsMetric')) ls.settingsChanged();
+    if (changed.has('lsHl') || changed.has('lsHlUnit')) ls.hlChanged();
     // The panes follow the room the bar leaves or takes by themselves (each watches its own size).
     if (changed.has('barCollapsed')) toolbar.setCollapsed(state.barCollapsed);
     if (['show', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'oiMarkets', 'customMarkets', 'oiInstrument', 'oiParts', 'seriesInstrument', 'range'].some(k => changed.has(k as never))) ls.invalidate();

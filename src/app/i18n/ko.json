@@ -3532,5 +3532,39 @@
  "Notify: on, sending from this tab": "통지: 켜짐, 이 탭에서 보내는 중",
  "Notify is on with nowhere to send: set up a pop-up or a phone channel in its panel": "통지가 켜져 있지만 보낼 곳이 없습니다: 패널에서 팝업이나 휴대폰 채널을 설정하세요",
  "Notify is on; another tab of this coin sends, and this one takes over when it closes": "통지가 켜져 있고, 이 코인의 다른 탭이 보내는 중이며 그 탭이 닫히면 이 탭이 이어받습니다",
- "Notify, once you set it up, sends your alerts from your browser to the Telegram bot, ntfy topic or Discord webhook you chose, never through this site.": "통지를 설정하면 알림이 브라우저에서 선택한 Telegram 봇, ntfy 토픽 또는 Discord 웹훅으로 바로 전송됩니다. 이 사이트를 거치지 않습니다."
+ "Notify, once you set it up, sends your alerts from your browser to the Telegram bot, ntfy topic or Discord webhook you chose, never through this site.": "통지를 설정하면 알림이 브라우저에서 선택한 Telegram 봇, ntfy 토픽 또는 Discord 웹훅으로 바로 전송됩니다. 이 사이트를 거치지 않습니다.",
+ "Sizes": "크기",
+ "Sizes: taker flow by market order size. A row for each of the Flow history's six sizes, from under $25K to $5M and over, each with its spot and perpetual cumulative volume delta; the top row adds them all.": "크기: 시장가 주문 크기별 테이커 플로우. 플로우 이력의 여섯 크기($25K 미만부터 $5M 이상까지)마다 한 행이며, 각각 현물과 무기한의 누적 거래량 델타입니다. 맨 위 행은 모두의 합입니다.",
+ "How the column draws the order sizes, and its dot rows.": "이 열이 주문 크기를 그리는 방식과 점 행.",
+ "A row for each size of market order, the Flow history's six: the running delta of its spot and its perpetual orders from the left edge, from the order statistics kept every minute (so a line moves a minute at a time). Added together, the six rows make the top row.": "시장가 주문의 크기마다 한 행(플로우 이력의 여섯 크기): 왼쪽 끝부터 현물 주문과 무기한 주문의 누적 델타이며, 매분 기록되는 주문 통계에서 구합니다(그래서 선이 1분 단위로 움직입니다). 여섯 행을 더하면 맨 위 행이 됩니다.",
+ "Net and share over": "순액과 비중 기준 구간",
+ "The window each row's figures (each kind's net, the share of the six sizes' volume) are taken over.": "각 행의 수치(종류별 순액, 여섯 크기 거래량 중 비중)를 집계하는 구간.",
+ "Reading the order sizes…": "주문 크기를 읽는 중…",
+ "No order sizes recorded for this window.": "이 구간에는 기록된 주문 크기가 없습니다.",
+ "Orders {band}": "주문 {band}",
+ "Read from bars of {n} minutes: order sizes are kept a minute at a time.": {
+  "other": "{n}분 봉에서 읽음: 주문 크기는 1분 단위로 기록됩니다."
+ },
+ "{n} bars here hold no order sizes: the lines break there.": {
+  "other": "여기서 {n}개 봉에는 주문 크기가 없습니다: 선이 그곳에서 끊깁니다."
+ },
+ "The flow column's third view: market orders by size, a row for each of the Flow history's six sizes, each with its spot and its perpetual cumulative volume delta. The top row adds them all.": "플로우 열의 세 번째 보기: 크기별 시장가 주문. 플로우 이력의 여섯 크기마다 한 행이며, 각각 현물과 무기한의 누적 거래량 델타입니다. 맨 위 행은 모두의 합입니다.",
+ "Whose money moves the price? Each row is one size of market order, from under $25K to $5M and over (smaller sizes for smaller coins): its lines are what orders of that size bought less what they sold, spot and perpetual each in its own colour, from zero at the left edge. Added together, the six rows make the top row.": "누구의 돈이 가격을 움직이는가? 각 행은 시장가 주문의 한 크기로, $25K 미만부터 $5M 이상까지입니다(작은 코인은 크기도 작습니다). 선은 그 크기 주문의 매수에서 매도를 뺀 값이며, 현물과 무기한은 각자의 색으로 왼쪽 끝의 0에서 시작합니다. 여섯 행을 더하면 맨 위 행이 됩니다.",
+ "Every line has its own scale, so compare shapes, not heights. Beside each row: each kind's net over the window set in the gear, and the size's share of the volume of all six. Hover a row for its numbers.": "선마다 자체 눈금이 있으므로 높이가 아니라 모양을 비교하세요. 각 행 옆에는 톱니바퀴에서 정한 구간의 종류별 순액과, 여섯 크기 거래량 중 그 크기의 비중이 있습니다. 행에 마우스를 올리면 숫자를 볼 수 있습니다.",
+ "The sizes are kept only as each minute's order statistics, so these lines move a minute at a time (over a long span, five minutes or more) where the Flow view's move every second. A stretch recorded before order sizes were kept has none: the lines break there. The markets are those of the top row, and the Spot / Perp filter counts here too.": "크기는 매분의 주문 통계로만 기록되므로 이 선들은 1분 단위로 움직입니다(긴 구간에서는 5분 이상 단위). 플로우 보기의 선은 매초 움직입니다. 주문 크기를 기록하기 전에 기록된 구간에는 크기가 없어 선이 그곳에서 끊깁니다. 시장은 맨 위 행과 같으며, 현물 / 무기한 필터도 여기에 적용됩니다.",
+ "The order sizes could not be read: asked again in a few seconds.": "주문 크기를 읽지 못했습니다: 몇 초 후 다시 요청합니다.",
+ "−PnL": "−PnL",
+ "{v} and more": "{v} 이상",
+ "{v} and less": "{v} 이하",
+ "{lo} to {hi}": "{lo}~{hi}",
+ "{long} long, {short} short": "롱 {long}, 숏 {short}",
+ "Hyperliquid: every wallet's BTC position in HyperTracker's snapshots, about every 29 minutes, the positions some 35 minutes old; the groups by all-time PnL or size are HyperTracker's, as each snapshot gives them.": "Hyperliquid: HyperTracker 스냅샷(약 29분마다, 포지션은 약 35분 전 기준)에 담긴 모든 지갑의 BTC 포지션입니다. 전체 기간 PnL이나 규모에 따른 그룹은 HyperTracker의 것으로, 각 스냅샷이 제공하는 그대로입니다.",
+ "In dollars every long has a short: all wallets together are always half long, so the profitable and the losing traders sit on opposite sides of 50 %.": "달러 기준으로는 모든 롱에 숏이 있습니다. 모든 지갑을 합치면 항상 절반이 롱이므로, 수익을 낸 트레이더와 손실을 낸 트레이더는 50 %를 사이에 두고 서로 반대편에 놓입니다.",
+ "How Hyperliquid's line is split, by HyperTracker's groups of wallets: everyone with the profitable and the losing traders, its eight bands of all-time PnL, or its eight size bands.": "Hyperliquid 선을 HyperTracker의 지갑 그룹으로 나누는 방식: 전체와 수익 트레이더·손실 트레이더, 전체 기간 PnL 8개 구간, 또는 규모 8개 구간.",
+ "By PnL": "PnL별",
+ "By size": "규모별",
+ "Count Hyperliquid's wallets on each side, or the dollars they hold. In dollars all wallets together are always half long, so that line is left out.": "Hyperliquid의 각 방향 지갑 수 또는 그들이 보유한 달러를 셉니다. 달러 기준으로는 모든 지갑을 합치면 항상 절반이 롱이므로 그 선은 빠집니다.",
+ "Wallets": "지갑",
+ "Dollars": "달러",
+ "Hyperliquid publishes no ratio of its own. Its lines are counted from HyperTracker's snapshots of every wallet's BTC position, about every 29 minutes and some 35 minutes old: the share of wallets that is long for everyone, for the profitable traders (all-time PnL above zero, +PnL) and for the losing ones (−PnL), or, with the Hyperliquid choice in the header, for each of HyperTracker's eight bands of all-time PnL or of size, each wallet in the band its snapshot gives it. Count switches to the dollars each side holds; everyone is then always half long, since every long has a short, and that line is left out. They show while Hyperliquid's BTC perpetual is one of the open-interest markets, from mid-June 2026 on. They have not been tested as a signal.": "Hyperliquid는 자체 비율을 공개하지 않습니다. 그 선은 HyperTracker 스냅샷(약 29분마다, 약 35분 전 기준)에 담긴 모든 지갑의 BTC 포지션으로 셉니다. 전체, 수익 트레이더(전체 기간 PnL이 0보다 큼, +PnL), 손실 트레이더(−PnL) 각각에서 롱인 지갑의 비율이며, 헤더의 Hyperliquid 선택으로 HyperTracker의 전체 기간 PnL 또는 규모 8개 구간별로도 볼 수 있고, 각 지갑은 해당 스냅샷이 정한 구간에 들어갑니다. '집계 대상'을 바꾸면 각 방향이 보유한 달러로 셉니다. 이때 모든 롱에는 숏이 있으므로 전체는 항상 절반이 롱이며 그 선은 빠집니다. Hyperliquid의 BTC 무기한 선물이 미결제약정 시장에 포함되어 있는 동안, 2026년 6월 중순부터 표시됩니다. 신호로서 검증되지 않았습니다."
 }
